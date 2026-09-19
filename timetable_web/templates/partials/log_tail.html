@@ -1,0 +1,11 @@
+<div class="log-full">
+  {% if store.log_entries %}
+    <ol reversed>
+      {% for ts, msg in store.log_entries|reverse %}
+        <li><span class="ts">[{{ ts }}]</span>{{ msg }}</li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p class="muted" style="padding: 12px 16px;">— السجل فارغ —</p>
+  {% endif %}
+</div>

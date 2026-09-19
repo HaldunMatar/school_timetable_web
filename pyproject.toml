@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "timetable-web"
+version = "0.1.0"
+description = "نسخة الويب من برنامج توزيع الأساتذة والحصص — FastAPI + HTMX"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.12",
+    "ortools>=9.15",
+    "reportlab>=4.0",
+    "arabic-reshaper>=3.0",
+    "python-bidi>=0.6",
+    "platformdirs>=4.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+timetable-web = "timetable_web.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["timetable_web"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}التوليد{% endblock %}
+{% block content %}
+<section class="stack">
+  <div class="row" style="justify-content: space-between; align-items: baseline;">
+    <h1>التوليد</h1>
+    <span class="muted">محرك CP-SAT · مهلة الحلّ القصوى: 5 دقائق</span>
+  </div>
+
+  <div class="solve-actions">
+    <button class="btn primary big"
+            hx-post="/solve/generate-all"
+            hx-target="#solve-status" hx-swap="innerHTML"
+            hx-disabled-elt="this, .btn.big"
+            hx-confirm="سيتم تشغيل حلّ CP-SAT وقد يستغرق حتى 5 دقائق. متابعة؟">
+      ⚙ توليد البرامج الثلاثة (PDF)
+    </button>
+    <button class="btn"
+            hx-post="/solve/constraints-report"
+            hx-target="#solve-status" hx-swap="innerHTML"
+            title="لا يحتاج حلّ CP-SAT — يقرأ إعدادات القيود مباشرة">
+      📋 تقرير شروط الأساتذة
+    </button>
+    <button class="btn"
+            hx-post="/solve/complexity-report"
+            hx-target="#solve-status" hx-swap="innerHTML"
+            title="لا يحتاج حلّ CP-SAT — ترتيب بحسب تعقيد قيود كل أستاذ">
+      🔢 ترتيب حسب تعقيد الشروط
+    </button>
+    <button class="btn big"
+            hx-post="/solve/fulfillment-report"
+            hx-target="#solve-status" hx-swap="innerHTML"
+            hx-disabled-elt="this, .btn.big"
+            hx-confirm="سيتم تشغيل حلّ CP-SAT لحساب نسبة التحقق. قد يستغرق حتى 5 دقائق. متابعة؟">
+      📊 تقرير نسبة تحقق الرغبات
+    </button>
+  </div>
+
+  <div id="solve-status">
+    {% include "partials/solve_status.html" %}
+  </div>
+</section>
+
+<style>
+  .solve-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+  .solve-actions .btn { padding: 12px 18px; font-size: 14px; }
+  .solve-actions .btn.big { font-weight: 600; }
+  .solve-progress {
+    background: #eef2f7; border-radius: 6px; height: 10px; overflow: hidden; margin: 8px 0;
+  }
+  .solve-progress-bar {
+    background: linear-gradient(90deg, var(--accent), #4c8bd9);
+    height: 100%; transition: width 0.4s; width: 0;
+  }
+  .status-pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    background: #e5e7eb; color: var(--muted);
+  }
+  .status-pill.running { background: #fef3c7; color: #854d0e; animation: pulse 1.4s infinite; }
+  .status-pill.done { background: #dcfce7; color: #166534; }
+  .status-pill.failed { background: #fee2e2; color: var(--danger); }
+  @keyframes pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+  .files-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0 0; padding: 0; list-style: none; }
+  .files-list li a {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; background: #f5f7fa; border-radius: 6px;
+    border-right: 3px solid var(--accent);
+  }
+  .files-list li a:hover { background: #eaeef4; text-decoration: none; }
+</style>
+{% endblock %}

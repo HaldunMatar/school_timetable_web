@@ -1,0 +1,17 @@
+{# Defaults pane: single form per constraint, editable, no override toggle. #}
+{% set group = data.scheduling_constraints.defaults[key] %}
+{% set title = constraint_titles[key] %}
+{% set post_url = "/constraints/defaults/" ~ key %}
+<div class="constraint-card" id="cg-defaults-{{ key }}">
+  <h4>{{ title }}</h4>
+  <form class="body-fields"
+        hx-post="{{ post_url }}"
+        hx-trigger="change"
+        hx-target="#cg-defaults-{{ key }}" hx-swap="outerHTML">
+    <label class="subrow" style="font-weight: 500;">
+      <input type="checkbox" name="enabled" {% if group.enabled %}checked{% endif %}>
+      تفعيل هذا القيد
+    </label>
+    {% include "partials/constraint_fields.html" %}
+  </form>
+</div>

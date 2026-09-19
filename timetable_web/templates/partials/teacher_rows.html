@@ -1,0 +1,30 @@
+{% for row in roster %}
+  <tr>
+    <td class="muted">{{ loop.index }}</td>
+    <td><strong>{{ row.name }}</strong></td>
+    <td>{{ row.weekly_periods }}</td>
+    <td>{% if row.subjects %}
+      {% for s in row.subjects %}<span class="pill">{{ s }}</span>{% endfor %}
+    {% else %}<span class="muted">— بلا مواد —</span>{% endif %}</td>
+    <td>
+      <details class="row-actions">
+        <summary class="btn small">تعديل الاسم</summary>
+        <form hx-post="/teachers/rename" hx-target="#roster-tbody" hx-swap="innerHTML"
+              hx-on::after-request="this.closest('details').open = false"
+              class="row" style="gap: 4px; margin-top: 4px;">
+          <input type="hidden" name="old_name" value="{{ row.name }}">
+          <input type="text" name="new_name" value="{{ row.name }}" required style="flex: 1;">
+          <button type="submit" class="primary small">حفظ</button>
+        </form>
+      </details>
+      <button class="danger small"
+              hx-post="/teachers/delete"
+              hx-vals='{"name": "{{ row.name }}"}'
+              hx-target="#roster-tbody" hx-swap="innerHTML"
+              hx-confirm="حذف الأستاذ {{ row.name }}؟"
+              hx-on::response-error="alert(event.detail.xhr.responseText)">🗑</button>
+    </td>
+  </tr>
+{% else %}
+  <tr><td colspan="5" class="muted" style="text-align:center;">لا يوجد أساتذة بعد. أضف واحداً من الأعلى.</td></tr>
+{% endfor %}

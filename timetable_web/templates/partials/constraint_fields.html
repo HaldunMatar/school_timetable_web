@@ -1,0 +1,68 @@
+{# Renders the type-specific fields for a constraint group.
+   Expects: key, group, days.
+   Note: read-only display for teacher pane when has_override is False is handled
+   by the parent card's .disabled-widgets class + `disabled` attribute below. #}
+{% set ro = (has_override is defined and not has_override) %}
+
+{% if key == "empty_periods" %}
+  <div class="subrow">
+    <label style="display: flex; gap: 6px; align-items: center;">
+      <input type="checkbox" name="start_enabled" {% if group.start and group.start.enabled %}checked{% endif %} {% if ro %}disabled{% endif %}>
+      بداية اليوم — عدد الحصص:
+    </label>
+    <input type="number" name="start_count" value="{{ group.start.count if group.start else 1 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
+  </div>
+  <div class="subrow">
+    <label style="display: flex; gap: 6px; align-items: center;">
+      <input type="checkbox" name="end_enabled" {% if group.end and group.end.enabled %}checked{% endif %} {% if ro %}disabled{% endif %}>
+      نهاية اليوم — عدد الحصص:
+    </label>
+    <input type="number" name="end_count" value="{{ group.end.count if group.end else 1 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
+  </div>
+  <div class="subrow">
+    <span class="muted" style="font-size: 12px;">نطاق الأيام:</span>
+    <label><input type="radio" name="days_mode" value="all" {% if group.days_mode == "all" or not group.days_mode %}checked{% endif %} {% if ro %}disabled{% endif %}> كل الأيام</label>
+    <label><input type="radio" name="days_mode" value="specific" {% if group.days_mode == "specific" %}checked{% endif %} {% if ro %}disabled{% endif %}> أيام محددة</label>
+  </div>
+  {% if group.days_mode == "specific" %}
+  <div class="subrow">
+    <span class="muted" style="font-size: 12px;">اختر الأيام:</span>
+    <div class="days-picker">
+      {% for d in days %}
+        <label><input type="checkbox" name="day_{{ d }}" {% if d in group.days %}checked{% endif %} {% if ro %}disabled{% endif %}> {{ d }}</label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+{% elif key == "day_off" %}
+  <div class="subrow">
+    <span class="muted" style="font-size: 12px;">النمط:</span>
+    <label><input type="radio" name="mode" value="specific" {% if group.mode == "specific" %}checked{% endif %} {% if ro %}disabled{% endif %}> يوم محدد</label>
+    <label><input type="radio" name="mode" value="random" {% if group.mode == "random" %}checked{% endif %} {% if ro %}disabled{% endif %}> عشوائي</label>
+  </div>
+  {% if group.mode == "specific" %}
+  <div class="subrow">
+    <span class="muted" style="font-size: 12px;">أيام العطلة:</span>
+    <div class="days-picker">
+      {% for d in days %}
+        <label><input type="checkbox" name="day_{{ d }}" {% if d in group.days %}checked{% endif %} {% if ro %}disabled{% endif %}> {{ d }}</label>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="subrow">
+    <span class="muted" style="font-size: 12px;">عدد الأيام العشوائية:</span>
+    <input type="number" name="count" value="{{ group.count or 1 }}" min="1" max="6" style="width: 60px;" {% if ro %}disabled{% endif %}>
+  </div>
+  {% endif %}
+
+{% elif key == "max_gap_windows" %}
+  <div class="subrow">
+    <span class="muted" style="font-size: 12px;">أقصى عدد نوافذ فراغ في اليوم:</span>
+    <input type="number" name="max" value="{{ group.max or 1 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
+  </div>
+
+{% elif key == "start_from_beginning" %}
+  <p class="muted" style="font-size: 12px; margin: 4px 0 0 0;">لا إعدادات إضافية — إما مفعَّل أو لا.</p>
+{% endif %}

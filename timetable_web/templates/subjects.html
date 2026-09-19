@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}البيانات — المواد{% endblock %}
+{% block content %}
+<section class="stack">
+  <h1>البيانات</h1>
+
+  {# ---------------- sections bar ---------------- #}
+  <div class="card">
+    <h3 style="margin-top: 0;">عدد الشعب لكل صف</h3>
+    <div class="sections-bar">
+      {% for g in grade_order %}
+        <label class="section-cell">
+          <span class="muted section-label">{{ grade_labels.get(g, g) }}</span>
+          <div class="row" style="gap: 4px; align-items: center;">
+            <input type="number" name="count" value="{{ data.sections.get(g, 0) }}" min="0" max="99"
+                   hx-post="/sections/{{ g }}" hx-trigger="change"
+                   hx-target="#sec-mark-{{ g }}" hx-swap="innerHTML" style="width: 60px;">
+            <span id="sec-mark-{{ g }}" class="ok-mark-slot"></span>
+          </div>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---------------- two-pane grid: list + editor ---------------- #}
+  <div class="two-pane">
+    <div class="pane-list">
+      {% include "partials/subject_list.html" %}
+    </div>
+
+    <div class="pane-editor" id="subject-editor">
+      {% if selected is not none %}
+        {% set _tmp = subjects[selected] %}
+        {% with idx=selected, subj=_tmp %}
+          {% include "partials/_editor_bootstrap.html" %}
+        {% endwith %}
+      {% else %}
+        <div class="card muted" style="text-align: center; padding: 40px;">
+          اختر مادة من القائمة لعرض/تعديلها.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<style>
+  .sections-bar { display: flex; gap: 12px; flex-wrap: wrap; }
+  .section-cell { display: flex; flex-direction: column; gap: 4px; }
+  .section-label { font-size: 12px; }
+  .ok-mark { color: var(--ok); font-weight: 600; font-size: 12px; }
+  .ok-mark-slot { min-width: 20px; display: inline-block; }
+  .two-pane { display: grid; grid-template-columns: 320px 1fr; gap: 14px; align-items: start; }
+  .pane-list { position: sticky; top: 60px; }
+  .pane-list table td { padding: 6px 8px; font-size: 13px; }
+  .pane-list tr { cursor: pointer; }
+  .pane-list tr.selected td { background: #eef2ff; }
+  .cat-pill { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+  .cat-pill.تربوية { background: #e0f2fe; color: #075985; }
+  .cat-pill.شرعية { background: #fef3c7; color: #854d0e; }
+  .periods-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; }
+  .periods-grid label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+  .name-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; margin: 3px; background: #eef2ff; border-radius: 999px; font-size: 13px; }
+  .name-chip button { padding: 0 4px; font-size: 11px; line-height: 1; background: transparent; border: none; color: var(--danger); cursor: pointer; }
+  @media (max-width: 900px) {
+    .two-pane { grid-template-columns: 1fr; }
+    .pane-list { position: static; }
+  }
+</style>
+
+<script>
+  // On row click: HTMX loads the editor for that subject
+  document.body.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-subject-idx]");
+    if (!tr) return;
+    if (e.target.tagName === "BUTTON") return;   // let delete work
+    const idx = tr.dataset.subjectIdx;
+    htmx.ajax("GET", `/subjects/${idx}/editor`, { target: "#subject-editor", swap: "innerHTML" });
+    document.querySelectorAll("tr.selected").forEach(x => x.classList.remove("selected"));
+    tr.classList.add("selected");
+    history.replaceState(null, "", `/subjects/${idx}`);
+  });
+</script>
+{% endblock %}

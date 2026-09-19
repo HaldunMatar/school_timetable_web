@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}قيود الجدولة{% endblock %}
+{% block content %}
+<section class="stack">
+  <div class="row" style="justify-content: space-between; align-items: baseline;">
+    <h1>قيود الجدولة</h1>
+    <span class="muted">يمين: الإعدادات الافتراضية العامة · يسار: تخصيص لأستاذ معيّن</span>
+  </div>
+  <p class="muted">هذه القيود <strong>best-effort</strong> — يحاول محرك الحلّ تحقيقها ولا يفشل التوليد إن تعذَّر (باستثناء <em>حد أقصى لنوافذ الفراغ</em> و<em>إلزام البدء</em>، وهما صلبان في المحرك).</p>
+
+  <div class="constraints-grid">
+    <div class="pane-defaults">
+      <div class="pane-header">
+        <h2>الإعدادات الافتراضية العامة</h2>
+        <p class="muted">تُطبَّق على كل أستاذ ليس له تخصيص خاص.</p>
+      </div>
+      {% for key in constraint_keys %}
+        {% include "partials/constraint_group.html" with context %}
+      {% endfor %}
+    </div>
+
+    <div class="pane-teacher">
+      <div class="pane-header">
+        <h2>تخصيص لأستاذ معيّن</h2>
+        <form method="get" action="/constraints" class="row" style="gap: 8px;">
+          <select name="teacher" onchange="this.form.submit()">
+            <option value="">— اختر أستاذاً —</option>
+            {% for t in teachers %}
+              <option value="{{ t }}" {% if selected_teacher == t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+      <div id="teacher-pane-body">
+        {% include "partials/constraints_teacher_pane.html" %}
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .constraints-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  .pane-header { padding: 0 4px; margin-bottom: 8px; }
+  .pane-header h2 { font-size: 16px; margin: 0 0 4px 0; }
+  .constraint-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+  .constraint-card h4 { margin: 0 0 10px 0; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .constraint-card .override-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #fef3c7; color: #854d0e; }
+  .constraint-card .inherited-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #e5e7eb; color: var(--muted); }
+  .constraint-card.disabled-widgets .body-fields input,
+  .constraint-card.disabled-widgets .body-fields select,
+  .constraint-card.disabled-widgets .body-fields label { opacity: 0.55; pointer-events: none; }
+  .constraint-card .subrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .constraint-card .days-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+  .constraint-card .days-picker label { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: #f5f7fa; border-radius: 6px; font-size: 12px; margin: 0; }
+  .teacher-info { background: #f0f7ff; border: 1px solid #dbeafe; border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; }
+  .teacher-info strong { color: var(--accent); }
+  @media (max-width: 1000px) {
+    .constraints-grid { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% if selected_teacher %}
+  <div class="teacher-info">
+    <strong>{{ selected_teacher }}</strong>
+    · النصاب الحالي: {{ teacher_info.weekly_periods }} حصة
+    {% if teacher_info.subjects %}
+    · المواد: {{ teacher_info.subjects|join('، ') }}
+    {% else %}
+    · <span class="muted">(بلا مواد مُسنَدة)</span>
+    {% endif %}
+  </div>
+  {% for key in constraint_keys %}
+    {% include "partials/constraint_group_teacher.html" with context %}
+  {% endfor %}
+{% else %}
+  <div class="card muted" style="text-align: center; padding: 40px;">
+    اختر أستاذاً من القائمة لتخصيص قيوده الخاصة.
+  </div>
+{% endif %}

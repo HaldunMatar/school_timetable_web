@@ -1,0 +1,23 @@
+<div id="manual-list">
+  {% if subj.manual_assignments %}
+    <table style="margin-top: 8px;">
+      <thead><tr><th>الأستاذ</th><th>الصف</th><th>الشعب</th><th></th></tr></thead>
+      <tbody>
+        {% for m in subj.manual_assignments %}
+          <tr>
+            <td>{{ m.teacher }}</td>
+            <td>{{ grade_labels.get(m.track, m.track) }}</td>
+            <td>{% for s in m.sections %}<span class="pill">{{ s }}</span>{% endfor %}</td>
+            <td>
+              <button class="danger small"
+                      hx-post="/subjects/{{ idx }}/manual/{{ loop.index0 }}/delete"
+                      hx-target="#manual-list" hx-swap="outerHTML">🗑</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted" style="margin: 8px 0 0 0;">— لا يوجد إسنادات إجبارية —</p>
+  {% endif %}
+</div>

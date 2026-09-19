@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}لوحة المعلومات{% endblock %}
+{% block content %}
+<section class="stack">
+  <h1>لوحة المعلومات</h1>
+
+  <div class="kpi-grid">
+    <div class="kpi-card"><span class="kpi-value">{{ kpi_subjects }}</span><span class="kpi-label">مادة</span></div>
+    <div class="kpi-card"><span class="kpi-value">{{ kpi_sections }}</span><span class="kpi-label">شعبة</span></div>
+    <div class="kpi-card"><span class="kpi-value">{{ kpi_teachers }}</span><span class="kpi-label">أستاذاً</span></div>
+    <div class="kpi-card"><span class="kpi-value">{{ kpi_multi }}</span><span class="kpi-label">أستاذاً بأكثر من مادة</span></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between; align-items: baseline;">
+      <h3 style="margin: 0;">استخدام السعة الأسبوعية</h3>
+      <span class="muted">{{ capacity_needed }} حصة من أصل {{ capacity_total }} ({{ kpi_sections }} شعبة × {{ nslots }} حصة/أسبوع)</span>
+    </div>
+    <div class="capacity-bar-wrap">
+      <div class="capacity-bar {% if capacity_pct > 100 %}over{% elif capacity_pct >= 90 %}tight{% endif %}"
+           style="width: {{ capacity_bar_pct }}%;"></div>
+    </div>
+    <div class="row" style="justify-content: space-between;">
+      <span class="{% if capacity_pct > 100 %}capacity-over{% elif capacity_pct >= 90 %}capacity-tight{% endif %}">
+        <strong>{{ capacity_pct }}%</strong>
+      </span>
+      <span class="muted">
+        {% if capacity_pct > 100 %}⚠ تجاوز السعة — التوليد سيفشل
+        {% elif capacity_pct == 100 %}⚠ على الحدّ تماماً — بلا هامش
+        {% elif capacity_pct >= 90 %}⚠ مساحة ضيقة
+        {% elif capacity_pct >= 70 %}✓ استخدام صحّي
+        {% else %}◔ مساحة كبيرة متبقية
+        {% endif %}
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top: 0;">تنبيهات قبل التوليد</h3>
+    {% if warnings %}
+      <ul class="warnings-list">
+        {% for w in warnings %}<li>⚠ {{ w }}</li>{% endfor %}
+      </ul>
+    {% else %}
+      <p class="all-clear">✓ لا توجد تنبيهات — البيانات متّسقة وجاهزة للتوليد.</p>
+    {% endif %}
+  </div>
+
+  {% if multi_teachers %}
+  <div class="card">
+    <h3 style="margin-top: 0;">أساتذة يدرّسون أكثر من مادة ({{ multi_teachers|length }})</h3>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+      {% for t in multi_teachers %}<span class="pill">{{ t }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<style>
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .kpi-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .kpi-value { font-size: 36px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .kpi-label { color: var(--muted); margin-top: 6px; font-size: 13px; }
+  .capacity-bar-wrap { background: #eef2f7; border-radius: 8px; height: 16px; overflow: hidden; margin: 10px 0 6px 0; }
+  .capacity-bar { background: linear-gradient(90deg, var(--ok), #22c55e); height: 100%; transition: width 0.5s; }
+  .capacity-bar.tight { background: linear-gradient(90deg, #f59e0b, #ea580c); }
+  .capacity-bar.over { background: linear-gradient(90deg, var(--danger), #7f1d1d); }
+  .capacity-over { color: var(--danger); font-weight: 700; }
+  .capacity-tight { color: var(--warn); font-weight: 600; }
+  .warnings-list { margin: 0; padding-right: 8px; list-style: none; }
+  .warnings-list li { padding: 6px 0; border-bottom: 1px dashed var(--border); color: var(--warn); }
+  .warnings-list li:last-child { border-bottom: none; }
+  .all-clear { color: var(--ok); font-weight: 500; margin: 0; }
+</style>
+{% endblock %}

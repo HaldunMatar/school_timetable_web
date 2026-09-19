@@ -1,0 +1,37 @@
+<div class="card" style="padding: 8px;">
+  <div class="row" style="justify-content: space-between; padding: 4px 8px 8px 8px; align-items: baseline;">
+    <strong>{{ subjects|length }} مادة</strong>
+    <details style="position: relative;">
+      <summary class="btn primary small" style="cursor: pointer;">+ جديدة</summary>
+      <form hx-post="/subjects/new" hx-target=".pane-list" hx-swap="innerHTML"
+            hx-on::after-request="this.reset(); this.closest('details').open = false"
+            style="position: absolute; top: 26px; left: 0; z-index: 5; background: var(--panel); border: 1px solid var(--border-strong); padding: 8px; border-radius: 6px; display: flex; gap: 4px; min-width: 240px; box-shadow: 0 2px 8px rgba(0,0,0,.08);">
+        <input type="text" name="name" placeholder="اسم المادة" required style="flex: 1;">
+        <button type="submit" class="primary small">إضافة</button>
+      </form>
+    </details>
+  </div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>المادة</th><th>التصنيف</th><th>الأساتذة</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in subjects %}
+        <tr data-subject-idx="{{ loop.index0 }}" {% if selected == loop.index0 %}class="selected"{% endif %}>
+          <td class="muted">{{ loop.index }}</td>
+          <td><strong>{{ s.name }}</strong></td>
+          <td><span class="cat-pill {{ s.category }}">{{ s.category }}</span></td>
+          <td>{{ s.names|length }}</td>
+          <td>
+            <button class="danger small"
+                    hx-post="/subjects/{{ loop.index0 }}/delete"
+                    hx-target=".pane-list" hx-swap="innerHTML"
+                    hx-confirm="حذف مادة {{ s.name }}؟ سيُفقد كل ما فيها.">🗑</button>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted" style="text-align:center;">لا يوجد مواد بعد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

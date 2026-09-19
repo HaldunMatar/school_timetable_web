@@ -1,0 +1,44 @@
+{# Polled fragment: refreshes every second while the solver is running.
+   Stops polling automatically once the status is done/failed/idle. #}
+<div class="card"
+     {% if store.solve_busy %}
+       hx-get="/solve/status" hx-trigger="every 1s" hx-swap="outerHTML"
+     {% endif %}>
+  <div class="row" style="justify-content: space-between; align-items: center;">
+    <div>
+      <strong>الحالة:</strong>
+      <span class="status-pill {{ store.solve_status }}">
+        {% if store.solve_status == "idle" %}جاهز
+        {% elif store.solve_status == "running" %}قيد التشغيل
+        {% elif store.solve_status == "done" %}اكتمل
+        {% elif store.solve_status == "failed" %}فشل
+        {% endif %}
+      </span>
+    </div>
+    <span class="muted">{{ store.solve_progress }}%</span>
+  </div>
+
+  {% if store.solve_message %}
+    <p class="muted" style="margin: 6px 0 0 0;">{{ store.solve_message }}</p>
+  {% endif %}
+
+  {% if store.solve_status == "running" %}
+    <div class="solve-progress">
+      <div class="solve-progress-bar" style="width: {{ store.solve_progress }}%;"></div>
+    </div>
+  {% endif %}
+
+  {% if store.generated_files %}
+    <h3 style="margin: 12px 0 6px 0; font-size: 14px;">ملفات جاهزة للتنزيل</h3>
+    <ul class="files-list">
+      {% for label, fname in store.generated_files.items() %}
+        <li>
+          <a href="/solve/download/{{ fname }}" download>
+            <span>📄 {{ fname }}</span>
+            <span class="muted small">تنزيل ⇩</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</div>

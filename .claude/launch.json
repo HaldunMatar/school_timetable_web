@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "timetable-web",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "timetable_web"],
+      "port": 8000
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{# Teacher pane: single form per constraint with an override toggle at the top.
+   If override off → show the inherited default values, disabled.
+   If override on  → show the teacher's own group, editable. #}
+{% set override = data.scheduling_constraints.per_teacher.get(selected_teacher, {}).get(key) %}
+{% set has_override = override is not none %}
+{% set group = override if has_override else data.scheduling_constraints.defaults[key] %}
+{% set title = constraint_titles[key] %}
+{% set toggle_url = "/constraints/teacher/" ~ selected_teacher ~ "/" ~ key ~ "/override" %}
+{% set save_url = "/constraints/teacher/" ~ selected_teacher ~ "/" ~ key %}
+<div class="constraint-card {% if not has_override %}disabled-widgets{% endif %}" id="cg-teacher-{{ key }}">
+  <h4>
+    <span>{{ title }}</span>
+    {% if has_override %}
+      <span class="override-badge">مُخصَّص</span>
+    {% else %}
+      <span class="inherited-badge">موروث من الافتراضي</span>
+    {% endif %}
+  </h4>
+  <div class="subrow override-toggle" style="border-bottom: 1px dashed var(--border); padding-bottom: 8px; margin-bottom: 8px;">
+    <label style="display: flex; gap: 6px; align-items: center; font-weight: 500;">
+      <input type="checkbox" name="on" {% if has_override %}checked{% endif %}
+             hx-post="{{ toggle_url }}" hx-trigger="change"
+             hx-target="#cg-teacher-{{ key }}" hx-swap="outerHTML">
+      خصّص هذا القيد لهذا الأستاذ
+    </label>
+  </div>
+  <form class="body-fields"
+        hx-post="{{ save_url }}"
+        hx-trigger="change"
+        hx-target="#cg-teacher-{{ key }}" hx-swap="outerHTML"
+        {% if not has_override %}onsubmit="return false"{% endif %}>
+    <label class="subrow" style="font-weight: 500;">
+      <input type="checkbox" name="enabled" {% if group.enabled %}checked{% endif %}
+             {% if not has_override %}disabled{% endif %}>
+      تفعيل هذا القيد
+    </label>
+    {% include "partials/constraint_fields.html" %}
+  </form>
+</div>

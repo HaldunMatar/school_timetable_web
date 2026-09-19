@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}برنامج توزيع الأساتذة والحصص{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+  <script src="{{ url_for('static', path='htmx.min.js') }}" defer></script>
+</head>
+<body hx-boost="true">
+  <header class="app-bar">
+    <div class="brand-block">
+      <a class="brand" href="/">برنامج توزيع الأساتذة والحصص</a>
+      <span class="subtitle">إدارة الخطة الدراسية وتوليد الجداول والقوائم</span>
+    </div>
+    <nav class="primary">
+      <a href="/">الرئيسية</a>
+      <a href="/teachers">قائمة الأساتذة</a>
+      <a href="/subjects">البيانات</a>
+      <a href="/constraints">قيود الجدولة</a>
+      <a href="/solve">التوليد</a>
+      <a href="/dashboard">لوحة المعلومات</a>
+      <a href="/log">سجل العمليات</a>
+    </nav>
+    <div class="file-status">
+      {% if store.current_path %}
+        <span class="path">📂 {{ store.current_path.name }}</span>
+        {% if store.dirty %}<span class="dirty-dot" title="تعديلات غير محفوظة">●</span>{% endif %}
+      {% else %}
+        <span class="muted">لا يوجد ملف محمَّل</span>
+      {% endif %}
+    </div>
+  </header>
+  <main class="page">{% block content %}{% endblock %}</main>
+  <div id="toast" class="toast" aria-live="polite"></div>
+</body>
+</html>

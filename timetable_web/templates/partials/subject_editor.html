@@ -1,0 +1,124 @@
+<div class="stack" style="gap: 12px;">
+  {# ---- basic (name + category) ---- #}
+  <div class="card">
+    <h3 style="margin-top: 0;">تعديل المادة</h3>
+    <form hx-post="/subjects/{{ idx }}/basic" hx-target="#basic-mark" hx-swap="innerHTML"
+          class="row" style="gap: 12px; flex-wrap: wrap;">
+      <label style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">اسم المادة</span>
+        <input type="text" name="name" value="{{ subj.name }}" required>
+      </label>
+      <label style="flex: 0 0 160px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">التصنيف</span>
+        <select name="category">
+          {% for c in categories %}
+            <option value="{{ c }}" {% if subj.category == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div style="align-self: end;">
+        <button type="submit" class="primary">حفظ</button>
+        <span id="basic-mark"></span>
+      </div>
+    </form>
+  </div>
+
+  {# ---- periods matrix ---- #}
+  <div class="card">
+    <h3 style="margin-top: 0;">عدد الحصص الأسبوعية في كل صف</h3>
+    <div class="periods-grid">
+      {% for g in grade_order %}
+        <label>
+          <span class="muted">{{ grade_labels.get(g, g) }} <small>({{ sections.get(g, 0) }} شعبة)</small></span>
+          <input type="number" name="count" value="{{ subj.periods.get(g, 0) }}" min="0" max="40" step="0.5"
+                 hx-post="/subjects/{{ idx }}/period/{{ g }}" hx-trigger="change"
+                 hx-target="#periods-total" hx-swap="innerHTML">
+        </label>
+      {% endfor %}
+    </div>
+    <p class="muted" id="periods-total" style="margin: 8px 0 0 0; font-size: 12px;">
+      إجمالي: {{ subj.periods.values()|sum }}
+    </p>
+  </div>
+
+  {# ---- names (teachers of this subject) ---- #}
+  <div class="card">
+    <h3 style="margin-top: 0;">أساتذة هذه المادة</h3>
+    {% include "partials/subject_names.html" %}
+  </div>
+
+  {# ---- manual assignments ---- #}
+  <div class="card">
+    <h3 style="margin-top: 0;">إسناد إجباري لشعب معينة</h3>
+    <p class="muted" style="font-size: 12px;">
+      أسند شعبة أو أكثر من صف معيّن لأستاذ من أساتذة هذه المادة. أي أستاذ يحصل على إسناد إجباري واحد يُستثنى من التوزيع التلقائي لبقية حصص المادة.
+    </p>
+    <form hx-post="/subjects/{{ idx }}/manual/add" hx-target="#manual-list" hx-swap="outerHTML"
+          hx-on::after-request="this.reset()"
+          class="row" style="gap: 8px; flex-wrap: wrap;">
+      <label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">الأستاذ</span>
+        <select name="teacher" required>
+          <option value="">—</option>
+          {% for n in subj.names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+        </select>
+      </label>
+      <label style="flex: 0 0 140px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">الصف</span>
+        <select name="track" required>
+          <option value="">—</option>
+          {% for g in grade_order %}
+            <option value="{{ g }}">{{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">أرقام الشعب (مثلاً: 1,2,3)</span>
+        <input type="text" name="section_csv" placeholder="1,2" required>
+      </label>
+      <div style="align-self: end;">
+        <button type="submit" class="primary">+ إضافة إسناد</button>
+      </div>
+    </form>
+    {% include "partials/manual_list.html" %}
+  </div>
+
+  {# ---- subject-level hard constraints ---- #}
+  <div class="card">
+    <h3 style="margin-top: 0;">قيود جدولة خاصة بهذه المادة <small class="muted">(صلبة — تُفشل التوليد إن استحال تحقيقها)</small></h3>
+    {% set mcp = subj.constraints.get("max_consecutive_per_day", {"enabled": false, "max": 2}) %}
+    {% set mds = subj.constraints.get("max_daily_per_section", {"enabled": false, "max": 2}) %}
+    <form class="stack" style="gap: 12px;">
+      <div class="row" style="gap: 12px; align-items: center;">
+        <label style="min-width: 300px;">
+          <input type="checkbox" name="enabled" {% if mcp.enabled %}checked{% endif %}
+                 hx-post="/subjects/{{ idx }}/constraint/max_consecutive_per_day"
+                 hx-include="[data-mcp]" hx-target="#mcp-mark" hx-swap="innerHTML">
+          حد أقصى لعدد الحصص المتتالية في نفس اليوم
+        </label>
+        الحد:
+        <input data-mcp type="number" name="max_value" value="{{ mcp.max }}" min="1" max="20" style="width: 80px;"
+               hx-post="/subjects/{{ idx }}/constraint/max_consecutive_per_day"
+               hx-trigger="change"
+               hx-include="[name='enabled']:first-of-type"
+               hx-target="#mcp-mark" hx-swap="innerHTML">
+        <span id="mcp-mark"></span>
+      </div>
+      <div class="row" style="gap: 12px; align-items: center;">
+        <label style="min-width: 300px;">
+          <input type="checkbox" name="enabled" {% if mds.enabled %}checked{% endif %}
+                 hx-post="/subjects/{{ idx }}/constraint/max_daily_per_section"
+                 hx-include="[data-mds]" hx-target="#mds-mark" hx-swap="innerHTML">
+          حد أقصى لعدد حصص هذه المادة يومياً لكل شعبة
+        </label>
+        الحد:
+        <input data-mds type="number" name="max_value" value="{{ mds.max }}" min="1" max="20" style="width: 80px;"
+               hx-post="/subjects/{{ idx }}/constraint/max_daily_per_section"
+               hx-trigger="change"
+               hx-include="[name='enabled']:nth-of-type(2)"
+               hx-target="#mds-mark" hx-swap="innerHTML">
+        <span id="mds-mark"></span>
+      </div>
+    </form>
+  </div>
+</div>

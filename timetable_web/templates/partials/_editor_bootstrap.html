@@ -1,0 +1,4 @@
+{# Loads the editor on initial page load if a subject was pre-selected via /subjects/{idx} #}
+<div hx-get="/subjects/{{ idx }}/editor" hx-trigger="load" hx-swap="outerHTML">
+  <span class="muted">تحميل...</span>
+</div>
