@@ -179,7 +179,9 @@ async def update_default(key: str, request: Request) -> HTMLResponse:
     store.log(f"قيد افتراضي محدَّث: {CONSTRAINT_TITLES[key]}")
     return TEMPLATES.TemplateResponse(
         request, "partials/constraint_group.html",
-        _ctx_group(data, key, "defaults", None) | {"request": request},
+        _ctx_group(data, key, "defaults", None) | {
+            "request": request, "data": data, "constraint_titles": CONSTRAINT_TITLES,
+        },
     )
 
 
@@ -200,8 +202,11 @@ def toggle_override(name: str, key: str, request: Request, on: str = Form("")) -
         store.log(f"إزالة تخصيص قيد {CONSTRAINT_TITLES[key]} من الأستاذ {name}")
     store.mark_dirty()
     return TEMPLATES.TemplateResponse(
-        request, "partials/constraint_group.html",
-        _ctx_group(data, key, "teacher", name) | {"request": request},
+        request, "partials/constraint_group_teacher.html",
+        _ctx_group(data, key, "teacher", name) | {
+            "request": request, "data": data, "constraint_titles": CONSTRAINT_TITLES,
+            "selected_teacher": name, "days": data["meta"]["days"],
+        },
     )
 
 
@@ -217,6 +222,9 @@ async def update_teacher(name: str, key: str, request: Request) -> HTMLResponse:
     _write_group(data, key, "teacher", name, group)
     store.mark_dirty()
     return TEMPLATES.TemplateResponse(
-        request, "partials/constraint_group.html",
-        _ctx_group(data, key, "teacher", name) | {"request": request},
+        request, "partials/constraint_group_teacher.html",
+        _ctx_group(data, key, "teacher", name) | {
+            "request": request, "data": data, "constraint_titles": CONSTRAINT_TITLES,
+            "selected_teacher": name, "days": data["meta"]["days"],
+        },
     )

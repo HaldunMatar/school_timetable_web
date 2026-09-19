@@ -33,3 +33,6 @@ packages = ["timetable_web"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests that run the full CP-SAT solver (~10s each). Skip with -m 'not slow'.",
+]

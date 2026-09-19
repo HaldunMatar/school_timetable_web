@@ -4,6 +4,16 @@
 
 مشروع منفصل عن `../app/` تماماً — لا تعتمد الواجهة القديمة على هذا، ولا العكس.
 
+## الاختبارات
+
+```bash
+pip install -e ".[dev]"
+pytest              # كل شيء (77 اختباراً)
+pytest -m "not slow"  # بلا اختبار CP-SAT الكامل
+```
+
+**التغطية:** 8 ملفات اختبار تغطي كل مسار في التطبيق — smoke + teachers + subjects + sections + constraints + solve (بلا وبمع CP-SAT) + files. البيانات معزولة في `tmp_path` والـ store يُعاد إنشاؤه من الصفر لكل اختبار.
+
 ## التشغيل
 
 ```bash

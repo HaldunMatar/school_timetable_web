@@ -62,7 +62,7 @@ def add(request: Request, name: str = Form(...)) -> HTMLResponse:
         raise HTTPException(400, "الاسم مطلوب")
     try:
         scheduler.add_teacher_to_roster(store.data, name)
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(400, str(exc))
     store.mark_dirty()
     store.log(f"تمت إضافة الأستاذ: {name}")
@@ -78,7 +78,7 @@ def rename(request: Request, old_name: str = Form(...), new_name: str = Form(...
         raise HTTPException(400, "الاسم الجديد مطلوب")
     try:
         scheduler.rename_teacher_in_roster(store.data, old_name, new_name)
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(400, str(exc))
     store.mark_dirty()
     store.log(f"تمت إعادة تسمية: {old_name} ← {new_name}")
@@ -90,7 +90,7 @@ def delete(request: Request, name: str = Form(...)) -> HTMLResponse:
     store = get_store()
     try:
         scheduler.remove_teacher_from_roster(store.data, name)
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(409, str(exc))
     store.mark_dirty()
     store.log(f"تم حذف الأستاذ: {name}")

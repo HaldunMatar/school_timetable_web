@@ -43,9 +43,12 @@ def _compute(data: dict) -> dict:
             warnings.append(f"مادة «{s['name']}» بلا أساتذة — سيولّد البرنامج أساتذة افتراضيين لها عند التوليد.")
 
     # 2. incomplete grades (informational)
-    for g, gap in scheduler.incomplete_grades(data):
-        label = data["meta"].get("grade_labels", {}).get(g, g)
-        warnings.append(f"صف {label}: مجموع حصصه ينقص {gap} حصة عن السعة الأسبوعية الكاملة (سيولَّد جدول بها فراغات).")
+    for grade, label, total, nslots in scheduler.incomplete_grades(data):
+        gap = nslots - int(round(total))
+        if gap > 0:
+            warnings.append(f"صف {label}: مجموع حصصه أقل بـ {gap} حصة عن السعة الأسبوعية الكاملة (ستكون هناك خانات فارغة في الجدول).")
+        else:
+            warnings.append(f"صف {label}: مجموع حصصه أكثر بـ {-gap} حصة من السعة الأسبوعية — التوليد سيفشل.")
 
     # 3. teachers exceeding capacity
     for name in teachers_roster:
