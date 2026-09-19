@@ -22,7 +22,7 @@
         <button hx-post="/file/save" hx-target="#toast" hx-swap="innerHTML"
                 hx-on::after-request="document.getElementById('toast').classList.add('show'); setTimeout(()=>document.getElementById('toast').classList.remove('show'), 2500)"
                 {% if not store.current_path %}disabled{% endif %}>💾 حفظ</button>
-        <a class="btn" href="/file/download" {% if not store.current_path %}aria-disabled="true"{% endif %}>⤓ تنزيل JSON</a>
+        <a class="btn" href="/file/download" hx-boost="false" download {% if not store.current_path %}aria-disabled="true"{% endif %}>⤓ تنزيل JSON</a>
         <button hx-post="/file/fill-missing-teachers" hx-target="#toast" hx-swap="innerHTML"
                 hx-on::after-request="document.getElementById('toast').classList.add('show'); setTimeout(()=>document.getElementById('toast').classList.remove('show'), 3500)"
                 {% if not store.current_path %}disabled{% endif %}

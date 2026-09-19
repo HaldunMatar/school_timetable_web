@@ -33,7 +33,7 @@
     <ul class="files-list">
       {% for label, fname in store.generated_files.items() %}
         <li>
-          <a href="/solve/download/{{ fname }}" download>
+          <a href="/solve/download/{{ fname }}" hx-boost="false" download>
             <span>📄 {{ fname }}</span>
             <span class="muted small">تنزيل ⇩</span>
           </a>
