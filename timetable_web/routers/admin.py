@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..auth import (
@@ -123,6 +123,52 @@ def reset_password(
     users = [new_user if u.username == username else u for u in load_users()]
     save_users(users)
     return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/users/{username}/upload-data")
+async def upload_data_for_user(
+    username: str,
+    request: Request,
+    admin: User = Depends(require_admin),
+    file: UploadFile = None,
+) -> RedirectResponse:
+    """يستبدل ملف بيانات المشرف بملف JSON مرفوع من admin.
+    يمسح كاش المشرف فوراً — الطلب التالي منه يقرأ الملف الجديد."""
+    user = find_user(username)
+    if not user or not user.data_file:
+        raise HTTPException(404, "غير موجود أو لا يملك ملف بيانات")
+    if file is None or not file.filename:
+        raise HTTPException(400, "لم يُرفَع أي ملف")
+    raw = await file.read()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(400, f"ملف JSON غير صالح: {exc}")
+    # فحوص هيكلية أساسية — الحقول الجوهرية موجودة
+    required = ["meta", "sections", "subjects"]
+    missing = [k for k in required if k not in data]
+    if missing:
+        raise HTTPException(400, f"ملف JSON مفقود فيه الحقول: {', '.join(missing)}")
+    meta = data.get("meta", {})
+    if not meta.get("days") or not meta.get("periods_per_day"):
+        raise HTTPException(400, "meta.days و meta.periods_per_day مطلوبان")
+
+    target = SCHOOLS_DIR / user.data_file
+    target.write_bytes(raw)
+    drop_store(username)  # المشرف يقرأ الجديد على الطلب التالي
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.get("/users/{username}/download-data")
+def download_data_for_user(username: str, admin: User = Depends(require_admin)) -> FileResponse:
+    """تنزيل ملف بيانات مشرف (نسخة احتياطية للإدارة)."""
+    user = find_user(username)
+    if not user or not user.data_file:
+        raise HTTPException(404, "غير موجود أو لا يملك ملف بيانات")
+    target = SCHOOLS_DIR / user.data_file
+    if not target.exists():
+        raise HTTPException(404, "ملف البيانات غير موجود على القرص")
+    return FileResponse(target, media_type="application/json", filename=user.data_file)
 
 
 @router.post("/users/{username}/delete")

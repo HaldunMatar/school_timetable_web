@@ -91,6 +91,25 @@
             </details>
 
             <details style="position: relative;">
+              <summary class="btn small" style="cursor: pointer;">📁 ملف البيانات</summary>
+              <div style="position: absolute; top: 26px; left: 0; background: white; padding: 10px; border: 1px solid var(--border-strong); border-radius: 6px; z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,.1); width: 280px;">
+                <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
+                  استبدال ملف {{ u.data_file }} بملف JSON جديد — يعتمده المشرف فوراً.
+                </p>
+                <form method="post" action="/admin/users/{{ u.username }}/upload-data"
+                      enctype="multipart/form-data" class="stack" style="gap: 6px;">
+                  <input type="file" name="file" accept=".json" required>
+                  <button type="submit" class="primary small">⬆ رفع واستبدال</button>
+                </form>
+                <hr style="margin: 10px 0; border: none; border-top: 1px solid var(--border);">
+                <a class="btn small" style="display: block; text-align: center;"
+                   href="/admin/users/{{ u.username }}/download-data" download>
+                  ⤓ تنزيل النسخة الحالية (نسخة احتياطية)
+                </a>
+              </div>
+            </details>
+
+            <details style="position: relative;">
               <summary class="btn danger small" style="cursor: pointer;">حذف</summary>
               <form method="post" action="/admin/users/{{ u.username }}/delete"
                     style="position: absolute; top: 26px; left: 0; background: white; padding: 10px; border: 1px solid var(--border-strong); border-radius: 6px; z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,.1); width: 260px;">
