@@ -94,3 +94,70 @@ button:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed;
 
 .log { max-height: 200px; overflow-y: auto; margin: 8px 0 0 0; padding: 8px 20px 8px 0; font-size: 12px; }
 .log li { list-style: none; padding: 2px 0; border-bottom: 1px dashed var(--border); }
+
+/* ---------- Modal dialogs (<dialog>) — تُستخدَم في صفحة إدارة المشرفين ---------- */
+dialog.modal {
+  border: none;
+  border-radius: 12px;
+  padding: 24px 26px;
+  min-width: 380px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+  font-family: inherit;
+  direction: rtl;
+  text-align: right;
+}
+dialog.modal.wide { min-width: 520px; }
+dialog.modal::backdrop { background: rgba(0, 0, 0, 0.5); }
+dialog.modal h3 {
+  margin: 0 0 12px 0;
+  font-size: 17px;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+dialog.modal label {
+  display: block;
+  margin: 12px 0 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+dialog.modal label input[type="password"],
+dialog.modal label input[type="text"] { margin-top: 6px; }
+dialog.modal fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 12px 0;
+}
+dialog.modal fieldset legend {
+  padding: 0 8px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+}
+dialog.modal .modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+dialog.modal .warn-box {
+  background: #fef3c7;
+  color: #854d0e;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border-inline-start: 4px solid #f59e0b;
+  margin: 12px 0;
+  font-size: 14px;
+}
+dialog.modal code {
+  background: #f5f7fa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: -apple-system, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}

@@ -81,48 +81,65 @@
               <button class="small">{% if u.active %}تعطيل{% else %}تفعيل{% endif %}</button>
             </form>
 
-            <details style="position: relative;">
-              <summary class="btn small" style="cursor: pointer;">تغيير كلمة المرور</summary>
-              <form method="post" action="/admin/users/{{ u.username }}/reset-password"
-                    style="position: absolute; top: 26px; left: 0; background: white; padding: 8px; border: 1px solid var(--border-strong); border-radius: 6px; display: flex; gap: 4px; z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,.1);">
-                <input type="password" name="password" placeholder="كلمة مرور جديدة" required minlength="4" style="width: 160px;">
-                <button type="submit" class="primary small">حفظ</button>
-              </form>
-            </details>
-
-            <details style="position: relative;">
-              <summary class="btn small" style="cursor: pointer;">📁 ملف البيانات</summary>
-              <div style="position: absolute; top: 26px; left: 0; background: white; padding: 10px; border: 1px solid var(--border-strong); border-radius: 6px; z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,.1); width: 280px;">
-                <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
-                  استبدال ملف {{ u.data_file }} بملف JSON جديد — يعتمده المشرف فوراً.
-                </p>
-                <form method="post" action="/admin/users/{{ u.username }}/upload-data"
-                      enctype="multipart/form-data" class="stack" style="gap: 6px;">
-                  <input type="file" name="file" accept=".json" required>
-                  <button type="submit" class="primary small">⬆ رفع واستبدال</button>
-                </form>
-                <hr style="margin: 10px 0; border: none; border-top: 1px solid var(--border);">
-                <a class="btn small" style="display: block; text-align: center;"
-                   href="/admin/users/{{ u.username }}/download-data" download>
-                  ⤓ تنزيل النسخة الحالية (نسخة احتياطية)
-                </a>
-              </div>
-            </details>
-
-            <details style="position: relative;">
-              <summary class="btn danger small" style="cursor: pointer;">حذف</summary>
-              <form method="post" action="/admin/users/{{ u.username }}/delete"
-                    style="position: absolute; top: 26px; left: 0; background: white; padding: 10px; border: 1px solid var(--border-strong); border-radius: 6px; z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,.1); width: 260px;">
-                <p class="muted" style="font-size: 12px; margin: 0 0 8px 0;">
-                  ⚠ سيُحذف حساب <strong>{{ u.username }}</strong> نهائياً.
-                </p>
-                <label style="display: flex; gap: 6px; font-size: 12px; margin-bottom: 8px;">
-                  <input type="checkbox" name="also_delete_data">
-                  حذف ملف بياناته أيضاً ({{ u.data_file }})
+            <button class="small" type="button" onclick="document.getElementById('dlg-pw-{{ loop.index }}').showModal()">🔑 كلمة المرور</button>
+            <dialog id="dlg-pw-{{ loop.index }}" class="modal">
+              <form method="post" action="/admin/users/{{ u.username }}/reset-password">
+                <h3>تغيير كلمة مرور: {{ u.username }}</h3>
+                <label>كلمة مرور جديدة (4 حروف على الأقل)
+                  <input type="password" name="password" required minlength="4" autofocus>
                 </label>
-                <button type="submit" class="danger">تأكيد الحذف</button>
+                <div class="modal-actions">
+                  <button type="button" onclick="this.closest('dialog').close()">إلغاء</button>
+                  <button type="submit" class="primary">حفظ</button>
+                </div>
               </form>
-            </details>
+            </dialog>
+
+            <button class="small" type="button" onclick="document.getElementById('dlg-file-{{ loop.index }}').showModal()">📁 ملف البيانات</button>
+            <dialog id="dlg-file-{{ loop.index }}" class="modal wide">
+              <h3>ملف بيانات: {{ u.username }}</h3>
+              <p class="muted" style="font-size: 13px;">
+                ملف <code>{{ u.data_file }}</code> — استبدله بملف JSON جديد وسيعتمده المشرف فوراً بلا حاجة لإعادة تسجيل دخول.
+              </p>
+
+              <fieldset>
+                <legend>⬆ رفع ملف جديد</legend>
+                <form method="post" action="/admin/users/{{ u.username }}/upload-data"
+                      enctype="multipart/form-data" class="stack" style="gap: 10px;">
+                  <input type="file" name="file" accept=".json" required>
+                  <button type="submit" class="primary">رفع واستبدال ملف {{ u.data_file }}</button>
+                </form>
+              </fieldset>
+
+              <fieldset>
+                <legend>⤓ نسخة احتياطية</legend>
+                <a class="btn" href="/admin/users/{{ u.username }}/download-data" download>
+                  تنزيل الملف الحالي إلى جهازك
+                </a>
+              </fieldset>
+
+              <div class="modal-actions">
+                <button type="button" onclick="this.closest('dialog').close()">إغلاق</button>
+              </div>
+            </dialog>
+
+            <button class="danger small" type="button" onclick="document.getElementById('dlg-del-{{ loop.index }}').showModal()">🗑 حذف</button>
+            <dialog id="dlg-del-{{ loop.index }}" class="modal">
+              <form method="post" action="/admin/users/{{ u.username }}/delete">
+                <h3>حذف مشرف: {{ u.username }}</h3>
+                <p class="warn-box">
+                  ⚠ سيُحذف حساب <strong>{{ u.username }}</strong> نهائياً ولا يمكن التراجع.
+                </p>
+                <label style="display: flex; gap: 8px; align-items: center;">
+                  <input type="checkbox" name="also_delete_data">
+                  حذف ملف بياناته أيضاً (<code>{{ u.data_file }}</code>)
+                </label>
+                <div class="modal-actions">
+                  <button type="button" onclick="this.closest('dialog').close()">إلغاء</button>
+                  <button type="submit" class="danger">تأكيد الحذف</button>
+                </div>
+              </form>
+            </dialog>
           </div>
         </td>
       </tr>
@@ -143,14 +160,22 @@
           <td><span class="status-pill done">مدير</span></td>
           <td class="muted" style="font-size: 12px;">{{ a.created_at[:10] }}</td>
           <td>
-            <details style="position: relative;">
-              <summary class="btn small" style="cursor: pointer;">🔑 تغيير كلمة المرور</summary>
-              <form method="post" action="/admin/users/{{ a.username }}/reset-password"
-                    style="position: absolute; top: 26px; left: 0; background: white; padding: 8px; border: 1px solid var(--border-strong); border-radius: 6px; display: flex; gap: 4px; z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,.1);">
-                <input type="password" name="password" placeholder="كلمة مرور جديدة" required minlength="4" style="width: 180px;">
-                <button type="submit" class="primary small">حفظ</button>
+            <button class="small" type="button" onclick="document.getElementById('dlg-adm-pw-{{ loop.index }}').showModal()">🔑 تغيير كلمة المرور</button>
+            <dialog id="dlg-adm-pw-{{ loop.index }}" class="modal">
+              <form method="post" action="/admin/users/{{ a.username }}/reset-password">
+                <h3>تغيير كلمة مرور المدير: {{ a.username }}</h3>
+                <p class="muted" style="font-size: 12px;">
+                  {% if a.username == me.username %}⚠ ستحتاج لتسجيل الدخول من جديد بعد التغيير.{% endif %}
+                </p>
+                <label>كلمة مرور جديدة (4 حروف على الأقل)
+                  <input type="password" name="password" required minlength="4" autofocus>
+                </label>
+                <div class="modal-actions">
+                  <button type="button" onclick="this.closest('dialog').close()">إلغاء</button>
+                  <button type="submit" class="primary">حفظ</button>
+                </div>
               </form>
-            </details>
+            </dialog>
           </td>
         </tr>
       {% endfor %}
