@@ -1,5 +1,8 @@
 # نسخة الويب — برنامج توزيع الأساتذة والحصص
 
+[![Tests](https://github.com/HaldunMatar/school_timetable_web/actions/workflows/tests.yml/badge.svg)](https://github.com/HaldunMatar/school_timetable_web/actions/workflows/tests.yml)
+
+
 نسخة ويب من نفس البرنامج، مبنية على FastAPI + Jinja2 + HTMX، تحمل **نفس محرك CP-SAT** وتوليد PDF من `app/` (منسوخَين إلى `timetable_web/core/`).
 
 مشروع منفصل عن `../app/` تماماً — لا تعتمد الواجهة القديمة على هذا، ولا العكس.
