@@ -133,20 +133,28 @@
     <p class="muted">لا يوجد مشرفون بعد — أنشئ أول مشرف من النموذج أعلاه.</p>
   {% endif %}
 
-  {% if admins|length > 1 %}
   <h2 style="margin: 20px 0 4px 0; font-size: 16px;">حسابات المدير ({{ admins|length }})</h2>
   <table>
-    <thead><tr><th>المستخدم</th><th>الحالة</th><th>تاريخ الإنشاء</th></tr></thead>
+    <thead><tr><th>المستخدم</th><th>الحالة</th><th>تاريخ الإنشاء</th><th style="width: 220px;">إجراءات</th></tr></thead>
     <tbody>
       {% for a in admins %}
         <tr>
           <td><strong>{{ a.username }}</strong>{% if a.username == me.username %} <span class="muted">(أنت)</span>{% endif %}</td>
           <td><span class="status-pill done">مدير</span></td>
           <td class="muted" style="font-size: 12px;">{{ a.created_at[:10] }}</td>
+          <td>
+            <details style="position: relative;">
+              <summary class="btn small" style="cursor: pointer;">🔑 تغيير كلمة المرور</summary>
+              <form method="post" action="/admin/users/{{ a.username }}/reset-password"
+                    style="position: absolute; top: 26px; left: 0; background: white; padding: 8px; border: 1px solid var(--border-strong); border-radius: 6px; display: flex; gap: 4px; z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,.1);">
+                <input type="password" name="password" placeholder="كلمة مرور جديدة" required minlength="4" style="width: 180px;">
+                <button type="submit" class="primary small">حفظ</button>
+              </form>
+            </details>
+          </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
-  {% endif %}
 </section>
 {% endblock %}
