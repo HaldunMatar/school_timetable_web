@@ -90,11 +90,44 @@ class Store:
         self.last_schedule_result = None
 
 
+# Per-user in-memory stores. Keyed by username.
+_stores: dict[str, Store] = {}
+# Legacy compatibility: some tests still monkeypatch this attribute.
 _store = Store()
 
 
+def _store_for_supervisor(username: str, data_file: str | None) -> Store:
+    if username not in _stores:
+        st = Store()
+        _stores[username] = st
+        if data_file:
+            path = (DATA_DIR / "schools" / data_file)
+            if path.exists():
+                st.load(path)
+    return _stores[username]
+
+
 def get_store() -> Store:
-    return _store
+    """يعيد الـ Store الخاص بالمستخدم الحالي (المشرف).
+
+    يقرأ current_user من auth.py عبر contextvar. يرفع 401 إن لم يكن هناك
+    مستخدم، و 403 إن كان المدير (المدير لا يملك بيانات مدرسة)."""
+    # delayed import to avoid circular
+    from fastapi import HTTPException
+    from ..auth import current_user
+
+    user = current_user()
+    if user is None:
+        # Tests and legacy paths that predate auth still work via _store
+        return _store
+    if user.is_admin():
+        raise HTTPException(400, "المدير لا يملك بيانات مدرسة — استخدم /admin لإدارة المشرفين")
+    return _store_for_supervisor(user.username, user.data_file)
+
+
+def drop_store(username: str) -> None:
+    """يمسح كاش الـ Store لمستخدم — يُستدعى عند حذف/تعديل المستخدم."""
+    _stores.pop(username, None)
 
 
 def _ensure_scheduling_constraints(data: dict) -> None:

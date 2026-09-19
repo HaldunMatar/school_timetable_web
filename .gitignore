@@ -10,3 +10,7 @@ output/*.xlsx
 dist/
 build/
 *.egg-info/
+# بيانات حساسة — لا ترفع أبداً
+data/users.json
+data/schools/
+

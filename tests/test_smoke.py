@@ -19,7 +19,6 @@ ALL_PAGES = [
     ("/dashboard", "لوحة المعلومات"),
     ("/log", "سجل العمليات"),
     ("/log/tail", ""),         # may be empty div
-    ("/file/list", "test.json"),
 ]
 
 

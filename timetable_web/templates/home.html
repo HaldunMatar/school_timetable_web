@@ -16,65 +16,20 @@
     </div>
 
     <div class="card">
-      <h3>عمليات الملف</h3>
-      <div class="stack" style="gap: 8px;">
-        <form action="/file/open" method="post" class="row" style="gap: 8px;">
-          <select name="name" required>
-            <option value="">— اختر ملفاً من data/ —</option>
-            {% for fname in file_names %}<option value="{{ fname }}">{{ fname }}</option>{% endfor %}
-          </select>
-          <button type="submit">فتح</button>
-        </form>
-
-        <form action="/file/upload" method="post" enctype="multipart/form-data" class="row" style="gap: 8px;">
-          <input type="file" name="file" accept=".json" required>
-          <button type="submit">تحميل من الجهاز</button>
-        </form>
-
-        <div class="row" style="gap: 8px;">
-          <button hx-post="/file/save" hx-target="#toast" hx-swap="innerHTML"
-                  hx-on::after-request="document.getElementById('toast').classList.add('show'); setTimeout(()=>document.getElementById('toast').classList.remove('show'), 2500)"
-                  {% if not store.current_path %}disabled{% endif %}>💾 حفظ</button>
-          <a class="btn" href="/file/download" {% if not store.current_path %}aria-disabled="true"{% endif %}>⤓ تنزيل JSON</a>
-          <button hx-post="/file/fill-missing-teachers" hx-target="#toast" hx-swap="innerHTML"
-                  hx-on::after-request="document.getElementById('toast').classList.add('show'); setTimeout(()=>document.getElementById('toast').classList.remove('show'), 3500)"
-                  {% if not store.current_path %}disabled{% endif %}
-                  title="يضيف أساتذة افتراضيين للمواد التي تفتقر لتغطية كافية">
-            👥 توليد الأساتذة الناقصين
-          </button>
-        </div>
+      <h3>حفظ + تنزيل + توليد أساتذة ناقصين</h3>
+      <p class="muted" style="font-size: 12px;">ملف بياناتك مخصَّص لك — لا يمكن استبداله من هنا. لتغيير هيكل الأيام/الحصص، تواصل مع المدير.</p>
+      <div class="row" style="gap: 8px;">
+        <button hx-post="/file/save" hx-target="#toast" hx-swap="innerHTML"
+                hx-on::after-request="document.getElementById('toast').classList.add('show'); setTimeout(()=>document.getElementById('toast').classList.remove('show'), 2500)"
+                {% if not store.current_path %}disabled{% endif %}>💾 حفظ</button>
+        <a class="btn" href="/file/download" {% if not store.current_path %}aria-disabled="true"{% endif %}>⤓ تنزيل JSON</a>
+        <button hx-post="/file/fill-missing-teachers" hx-target="#toast" hx-swap="innerHTML"
+                hx-on::after-request="document.getElementById('toast').classList.add('show'); setTimeout(()=>document.getElementById('toast').classList.remove('show'), 3500)"
+                {% if not store.current_path %}disabled{% endif %}
+                title="يضيف أساتذة افتراضيين للمواد التي تفتقر لتغطية كافية">
+          👥 توليد الأساتذة الناقصين
+        </button>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>مدرسة جديدة</h3>
-      <form action="/file/new" method="post" class="stack" style="gap: 10px;">
-        <label style="display: flex; flex-direction: column; gap: 4px;">
-          <span class="muted" style="font-size:12px;">اسم الملف (بدون .json)</span>
-          <input type="text" name="filename" placeholder="مثلاً: school_2027" required>
-        </label>
-        <label style="display: flex; flex-direction: column; gap: 4px;">
-          <span class="muted" style="font-size:12px;">أيام الدراسة</span>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            {% for d, checked in [("الأحد", true), ("الاثنين", true), ("الثلاثاء", true), ("الأربعاء", true), ("الخميس", true), ("الجمعة", false), ("السبت", false)] %}
-              <label style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #f5f7fa; border-radius: 6px; font-size: 12px;">
-                <input type="checkbox" name="day_{{ d }}" {% if checked %}checked{% endif %}> {{ d }}
-              </label>
-            {% endfor %}
-          </div>
-        </label>
-        <div class="row" style="gap: 10px;">
-          <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
-            <span class="muted" style="font-size:12px;">حصص/يوم</span>
-            <input type="number" name="periods_per_day" value="7" min="1" max="12">
-          </label>
-          <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
-            <span class="muted" style="font-size:12px;">النصاب المرجعي</span>
-            <input type="number" name="nisab_reference" value="19" min="1" max="60">
-          </label>
-        </div>
-        <button type="submit" class="primary">🆕 إنشاء وفتح</button>
-      </form>
     </div>
   </div>
 
