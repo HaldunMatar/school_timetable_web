@@ -36,6 +36,62 @@
       </div>
     </div>
   </div>
+
+  <!-- ============ قيود المواد (صلبة) ============ -->
+  <div class="pane-header" style="margin-top: 8px;">
+    <h2>قيود المواد <small class="muted">— صلبة، تُفشل التوليد إن استحال تحقيقها</small></h2>
+    <p class="muted">اضبط لكل مادة الحد الأقصى لعدد حصصها المتتالية في اليوم، والحد الأقصى الكلي في اليوم لكل شعبة. التعديل يُحفَظ تلقائياً.</p>
+  </div>
+  <div class="card" style="padding: 0;">
+    <table class="subjects-constraints-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>المادة</th>
+          <th>حد الحصص <strong>المتتالية</strong> في اليوم</th>
+          <th>حد الحصص الكلي في اليوم لكل شعبة</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in subjects_view %}
+        <tr>
+          <td class="muted">{{ loop.index }}</td>
+          <td><strong>{{ s.name }}</strong></td>
+          <td>
+            <form class="subject-constraint-row"
+                  hx-post="/subjects/{{ s.idx }}/constraint/max_consecutive_per_day"
+                  hx-trigger="change" hx-target="#sc-mcp-mark-{{ s.idx }}" hx-swap="innerHTML">
+              <label class="cbox">
+                <input type="checkbox" name="enabled" {% if s.mcp.enabled %}checked{% endif %}> تفعيل
+              </label>
+              <label class="num">
+                الحد:
+                <input type="number" name="max_value" value="{{ s.mcp.max }}" min="1" max="20">
+              </label>
+              <span id="sc-mcp-mark-{{ s.idx }}" class="mark"></span>
+            </form>
+          </td>
+          <td>
+            <form class="subject-constraint-row"
+                  hx-post="/subjects/{{ s.idx }}/constraint/max_daily_per_section"
+                  hx-trigger="change" hx-target="#sc-mds-mark-{{ s.idx }}" hx-swap="innerHTML">
+              <label class="cbox">
+                <input type="checkbox" name="enabled" {% if s.mds.enabled %}checked{% endif %}> تفعيل
+              </label>
+              <label class="num">
+                الحد:
+                <input type="number" name="max_value" value="{{ s.mds.max }}" min="1" max="20">
+              </label>
+              <span id="sc-mds-mark-{{ s.idx }}" class="mark"></span>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+          <tr><td colspan="4" class="muted" style="text-align:center;">لا يوجد مواد بعد — أضف مواداً من تبويب "البيانات" أولاً.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <style>
@@ -54,6 +110,15 @@
   .constraint-card .days-picker label { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: #f5f7fa; border-radius: 6px; font-size: 12px; margin: 0; }
   .teacher-info { background: #f0f7ff; border: 1px solid #dbeafe; border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; }
   .teacher-info strong { color: var(--accent); }
+
+  .subjects-constraints-table { border-radius: 8px; overflow: hidden; }
+  .subjects-constraints-table th { background: #f0f2f5; }
+  .subjects-constraints-table td { vertical-align: middle; }
+  .subject-constraint-row { display: flex; gap: 12px; align-items: center; margin: 0; }
+  .subject-constraint-row .cbox { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; margin: 0; }
+  .subject-constraint-row .num { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; margin: 0; }
+  .subject-constraint-row input[type="number"] { width: 60px; }
+  .subject-constraint-row .mark { min-width: 40px; font-weight: 600; color: var(--ok); font-size: 12px; }
   @media (max-width: 1000px) {
     .constraints-grid { grid-template-columns: 1fr; }
   }

@@ -109,6 +109,17 @@ def index(request: Request, teacher: str | None = Query(None)) -> HTMLResponse:
     _, data = _data()
     if teacher:
         ctx["teacher_info"] = _teacher_info(data, teacher)
+    # حضّر بيانات مبسَّطة لكل المواد + قيودها الصلبة الحالية
+    subjects_view = []
+    for i, s in enumerate(data.get("subjects", [])):
+        scheduler.ensure_subject_constraints(s)
+        subjects_view.append({
+            "idx": i,
+            "name": s["name"],
+            "mcp": s["constraints"].get("max_consecutive_per_day", {"enabled": False, "max": 2}),
+            "mds": s["constraints"].get("max_daily_per_section", {"enabled": False, "max": 2}),
+        })
+    ctx["subjects_view"] = subjects_view
     return TEMPLATES.TemplateResponse(request, "constraints.html", ctx)
 
 
