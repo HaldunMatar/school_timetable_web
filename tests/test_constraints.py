@@ -112,6 +112,24 @@ def test_teacher_update_requires_active_override(client):
     assert r.status_code == 400
 
 
+def test_defaults_response_never_returns_disabled_fields(client):
+    """Regression: كان تفعيل قيد افتراضي يُعيد كل الحقول التحتية disabled بالخطأ."""
+    r = client.post(
+        "/constraints/defaults/empty_periods",
+        data={"enabled": "on", "start_count": "1", "end_count": "1", "days_mode": "all"},
+    )
+    assert r.status_code == 200
+    # الرد يجب ألا يحوي 'disabled' في أي input — نحن في لوحة الافتراضيات
+    assert "disabled" not in r.text, "توجد حقول disabled في رد لوحة الافتراضيات (bug: يجمد من تحته)"
+
+
+def test_teacher_response_disables_fields_when_no_override(client):
+    """Regression: في لوحة الأستاذ بلا تخصيص، الحقول يجب أن تكون disabled."""
+    r = client.get(f"/constraints/teacher/{TEACHER_ENC}/panel")
+    assert r.status_code == 200
+    assert "disabled" in r.text, "لوحة الأستاذ بلا تخصيص يجب أن تعطّل الحقول"
+
+
 def test_teacher_save_after_override(client, store):
     client.post(
         f"/constraints/teacher/{TEACHER}/max_gap_windows/override",

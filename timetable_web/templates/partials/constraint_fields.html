@@ -1,8 +1,11 @@
 {# Renders the type-specific fields for a constraint group.
    Expects: key, group, days.
-   Note: read-only display for teacher pane when has_override is False is handled
-   by the parent card's .disabled-widgets class + `disabled` attribute below. #}
-{% set ro = (has_override is defined and not has_override) %}
+   The `disabled` attribute (`ro`) is applied ONLY in the teacher pane when
+   the teacher has no override for this constraint. In the defaults pane
+   (or on initial page render before scope is set) fields are always editable. #}
+{% set scope = scope | default("defaults") %}
+{% set has_override = has_override | default(false) %}
+{% set ro = (scope == "teacher" and not has_override) %}
 
 {% if key == "empty_periods" %}
   <div class="subrow">
