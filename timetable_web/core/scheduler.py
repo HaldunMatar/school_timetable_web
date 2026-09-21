@@ -230,11 +230,20 @@ def ensure_min_teachers(data):
 #   - "start"/"end": each {"enabled": bool, "count": int} - either or both
 #     may be enabled at the same time (e.g. "empty the first period AND the
 #     last period of every day").
-#   - "days_mode": "all" applies the enabled start/end rule(s) to every day
-#     of the week; "specific" restricts them to just the day names listed
-#     in "days".
-#   - "days": the explicit list of day names, used only when
-#     days_mode == "specific" (ignored, but always present, in "all" mode).
+#   - "days_mode": "all" applies the SAME "start"/"end" rule(s) above to
+#     every day of the week; "specific" ignores the top-level "start"/"end"
+#     entirely and instead gives EACH day listed in "days" its own
+#     independent start/end rule via "per_day" (e.g. empty 2 periods at the
+#     start of Sunday, and 3 periods at the end of Monday, in one group).
+#   - "days": the explicit list of day names actually targeted, used only
+#     when days_mode == "specific" (ignored, but always present, in "all"
+#     mode) - always equal to the keys of "per_day".
+#   - "per_day": {day_name: {"start": {...}, "end": {...}}}, one entry per
+#     day in "days", each shaped exactly like the top-level "start"/"end" -
+#     used only when days_mode == "specific". Empty ({}) in "all" mode, and
+#     also empty for any file saved before this per-day feature existed
+#     (every day then falls back to the shared top-level "start"/"end",
+#     which is exactly how "specific" mode behaved previously).
 DEFAULT_TEACHER_CONSTRAINTS = {
     "empty_periods": {
         "enabled": False,
@@ -242,6 +251,7 @@ DEFAULT_TEACHER_CONSTRAINTS = {
         "end": {"enabled": False, "count": 1},
         "days_mode": "all",
         "days": [],
+        "per_day": {},
     },
     "day_off": {"enabled": False, "mode": "specific", "days": [], "count": 1},
     "max_gap_windows": {"enabled": False, "max": 1},
@@ -271,11 +281,13 @@ def _normalize_empty_periods_group(group):
     Upgrade a possibly-legacy empty_periods dict to the current shape: old
     files (saved before simultaneous start+end support) store a single
     `"position": "start"|"end"` plus `"count": int`, always applied to every
-    day (no day-scoping concept existed). Returns a NEW dict - it never
-    mutates the dict it was given (or any nested dict inside it), so it is
-    always safe to call on a dict that is still referenced elsewhere (e.g.
-    live data straight from a loaded JSON file). Safe to call on an
-    already-current dict too (no-op besides the defensive copy).
+    day (no day-scoping concept existed). A later generation added
+    "days_mode"/"days" but no "per_day" (every specific day shared the same
+    top-level start/end). Returns a NEW dict - it never mutates the dict it
+    was given (or any nested dict inside it), so it is always safe to call
+    on a dict that is still referenced elsewhere (e.g. live data straight
+    from a loaded JSON file). Safe to call on an already-current dict too
+    (no-op besides the defensive copy).
     """
     if not isinstance(group, dict):
         return group
@@ -295,6 +307,25 @@ def _normalize_empty_periods_group(group):
     group["end"] = end
     group.setdefault("days_mode", "all")
     group.setdefault("days", [])
+
+    # "per_day" (per-day start/end overrides, only meaningful in "specific"
+    # mode): absent entirely on any file saved before this feature existed,
+    # in which case every day in "days" simply falls back to the shared
+    # top-level start/end above - identical to the old single-value-for-
+    # every-specific-day behavior, so this is a no-op for old data.
+    raw_per_day = group.get("per_day")
+    per_day = {}
+    if isinstance(raw_per_day, dict):
+        for day_name, cfg in raw_per_day.items():
+            cfg = cfg if isinstance(cfg, dict) else {}
+            pd_start = dict(cfg.get("start") or {})
+            pd_start.setdefault("enabled", False)
+            pd_start.setdefault("count", 1)
+            pd_end = dict(cfg.get("end") or {})
+            pd_end.setdefault("enabled", False)
+            pd_end.setdefault("count", 1)
+            per_day[day_name] = {"start": pd_start, "end": pd_end}
+    group["per_day"] = per_day
     return group
 
 
@@ -570,32 +601,69 @@ def validate_teacher_constraints(data):
 
         ep = eff["empty_periods"]
         sfb = eff["start_from_beginning"]
-        if (ep["enabled"] and ep["start"]["enabled"]
-                and int(ep["start"]["count"] or 0) >= 1 and sfb["enabled"]):
-            raise RuntimeError(
-                f"تعارض في إعدادات الأستاذ {name}: خيار \"تفريغ حصص في بداية اليوم\" "
-                f"يتعارض مع خيار \"إلزام الحصص بالبدء من أول اليوم\" في آنٍ واحد."
-            )
         if ep["enabled"]:
-            if not (ep["start"]["enabled"] or ep["end"]["enabled"]):
-                raise RuntimeError(
-                    f"إعداد تفريغ الحصص غير مكتمل للأستاذ {name}: القيد مفعّل لكن لم يُفعَّل "
-                    f"أي من \"بداية اليوم\" أو \"نهاية اليوم\" - فعّل أحدهما على الأقل، أو عطّل "
-                    f"هذا القيد بالكامل."
-                )
-            if ep.get("days_mode") == "specific":
+            specific_mode = ep.get("days_mode") == "specific"
+            per_day = ep.get("per_day") or {}
+
+            # تعارض مع "إلزام البدء من أول حصة" (قيد صارم يُطبَّق على كل
+            # الأيام دائماً بلا استثناء): في نمط "أيام محددة" يُفحص كل يوم
+            # بعدده الخاص، وفي نمط "كل الأيام" يُفحص الإعداد العام الموحّد.
+            if sfb["enabled"]:
+                if specific_mode:
+                    conflicting_day = next(
+                        (d for d, cfg in per_day.items()
+                         if cfg.get("start", {}).get("enabled")
+                         and int(cfg["start"].get("count") or 0) >= 1),
+                        None,
+                    )
+                    if conflicting_day:
+                        raise RuntimeError(
+                            f"تعارض في إعدادات الأستاذ {name}: خيار \"تفريغ بداية اليوم\" "
+                            f"ليوم {conflicting_day} يتعارض مع خيار \"إلزام الحصص بالبدء من "
+                            f"أول اليوم\" في آنٍ واحد."
+                        )
+                elif ep["start"]["enabled"] and int(ep["start"]["count"] or 0) >= 1:
+                    raise RuntimeError(
+                        f"تعارض في إعدادات الأستاذ {name}: خيار \"تفريغ حصص في بداية اليوم\" "
+                        f"يتعارض مع خيار \"إلزام الحصص بالبدء من أول اليوم\" في آنٍ واحد."
+                    )
+
+            if specific_mode:
                 chosen = list(dict.fromkeys(ep.get("days") or []))
                 if not chosen:
                     raise RuntimeError(
                         f"إعداد تفريغ الحصص غير مكتمل للأستاذ {name}: النمط \"أيام محددة\" "
-                        f"مفعّل لكن لم يُختَر أي يوم بعد - اختر يوماً واحداً على الأقل أو بدّل "
-                        f"النمط إلى \"كل الأيام\"."
+                        f"مفعّل لكن لم يُختَر أي يوم بعد - فعِّل تفريغ بداية و/أو نهاية ليوم "
+                        f"واحد على الأقل، أو بدّل النمط إلى \"كل الأيام\"."
                     )
                 bad = [d for d in chosen if d not in days]
                 if bad:
                     raise RuntimeError(
                         f"إعداد تفريغ الحصص غير صالح للأستاذ {name}: "
                         f"\"{'، '.join(bad)}\" ليس من أيام الأسبوع الدراسي المعرَّفة."
+                    )
+                # كل يوم "مختار" (ظاهر في "days") يجب أن يحمل فعلاً بداية
+                # و/أو نهاية مفعَّلة في per_day، وإلا فهو يوم بلا أي أثر -
+                # بيانات غير متّسقة (مثل ملف عُدِّل يدوياً خارج الواجهة).
+                empty_days = [
+                    d for d in chosen
+                    if not (
+                        (per_day.get(d) or {}).get("start", {}).get("enabled")
+                        or (per_day.get(d) or {}).get("end", {}).get("enabled")
+                    )
+                ]
+                if empty_days:
+                    raise RuntimeError(
+                        f"إعداد تفريغ الحصص غير صالح للأستاذ {name}: اليوم/الأيام "
+                        f"\"{'، '.join(empty_days)}\" مُختارة لكن بلا بداية أو نهاية "
+                        f"مفعَّلة لها - فعِّل أحدهما لكل يوم مختار، أو أزِله من القائمة."
+                    )
+            else:
+                if not (ep["start"]["enabled"] or ep["end"]["enabled"]):
+                    raise RuntimeError(
+                        f"إعداد تفريغ الحصص غير مكتمل للأستاذ {name}: القيد مفعّل لكن لم "
+                        f"يُفعَّل أي من \"بداية اليوم\" أو \"نهاية اليوم\" - فعّل أحدهما على "
+                        f"الأقل، أو عطّل هذا القيد بالكامل."
                     )
 
         day_off = eff["day_off"]
@@ -1132,34 +1200,49 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                 busy[d, p] = b
 
         # 1) تفريغ عدد حصص محدد في بداية اليوم و/أو في نهايته (قيد ليّن -
-        #    انظر الشرح أعلاه)، على كل الأيام أو على أيام محددة فقط: بدل
-        #    إلزام هذه الحصص بالفراغ (ما قد يجعل الحل مستحيلاً بالكامل)،
-        #    تُدرَج في هدف التحسين بوزن كبير فتُترك فارغة كلما أمكن، وتبقى
-        #    مشغولة فقط عند الضرورة القصوى. "بداية اليوم" و"نهاية اليوم" ليسا
-        #    خيارين متبادلين بعد الآن - قد يكونا مفعَّلين معاً (كل بعدده
-        #    الخاص)، أو واحد منهما فقط.
+        #    انظر الشرح أعلاه)، على كل الأيام بنفس العدد، أو على أيام محددة
+        #    فقط - وفي هذه الحالة الثانية لكل يوم عدده الخاص (مثال: تفريغ
+        #    حصتين من بداية الأحد، وثلاث حصص من نهاية الاثنين، في نفس
+        #    المجموعة). بدل إلزام هذه الحصص بالفراغ (ما قد يجعل الحل
+        #    مستحيلاً بالكامل)، تُدرَج في هدف التحسين بوزن كبير فتُترك فارغة
+        #    كلما أمكن، وتبقى مشغولة فقط عند الضرورة القصوى. "بداية اليوم"
+        #    و"نهاية اليوم" ليسا خيارين متبادلين - قد يكونا مفعَّلين معاً
+        #    (كل بعدده الخاص)، أو واحد منهما فقط، لكل يوم على حدة في نمط
+        #    "أيام محددة".
         ep = eff["empty_periods"]
         if ep["enabled"]:
-            if ep.get("days_mode") == "specific":
-                target_days = [
-                    days.index(d) for d in dict.fromkeys(ep.get("days") or []) if d in days
+            specific_mode = ep.get("days_mode") == "specific"
+            per_day_cfg = ep.get("per_day") or {}
+            if specific_mode:
+                target_day_names = [
+                    d for d in dict.fromkeys(ep.get("days") or []) if d in days
                 ]
             else:  # "all"
-                target_days = list(range(len(days)))
-
-            start_cfg = ep["start"]
-            end_cfg = ep["end"]
-            start_count = (
-                max(0, min(int(start_cfg["count"] or 0), periods_per_day))
-                if start_cfg["enabled"] else 0
-            )
-            end_count = (
-                max(0, min(int(end_cfg["count"] or 0), periods_per_day))
-                if end_cfg["enabled"] else 0
-            )
+                target_day_names = list(days)
 
             target_vars = {}
-            for d in target_days:
+            day_config = {}
+            for day_name in target_day_names:
+                d = days.index(day_name)
+                # في نمط "أيام محددة" لهذا اليوم عدده الخاص إن وُجد
+                # (per_day)، وإلا يرث عدد المجموعة العام - وهذا بالضبط ما
+                # كان يحدث دائماً قبل إضافة إمكانية التخصيص لكل يوم (توافقية
+                # كاملة مع أي ملف بيانات قديم). في نمط "كل الأيام" يُستخدم
+                # عدد المجموعة العام مباشرة لكل الأيام دائماً.
+                day_override = per_day_cfg.get(day_name) if specific_mode else None
+                start_cfg = (day_override or {}).get("start", ep["start"])
+                end_cfg = (day_override or {}).get("end", ep["end"])
+                start_count = (
+                    max(0, min(int(start_cfg.get("count") or 0), periods_per_day))
+                    if start_cfg.get("enabled") else 0
+                )
+                end_count = (
+                    max(0, min(int(end_cfg.get("count") or 0), periods_per_day))
+                    if end_cfg.get("enabled") else 0
+                )
+                if not start_count and not end_count:
+                    continue
+
                 # A union, not two separate loops - so a small periods_per_day
                 # where the start-count and end-count ranges overlap (e.g. a
                 # 3-period day with both "empty first 2" and "empty last 2"
@@ -1175,13 +1258,16 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                     soft_violation_terms_by_teacher.setdefault(teacher, []).append(
                         (busy[d, p], "empty_periods"))
                     target_vars[d, p] = busy[d, p]
+                day_config[d] = {
+                    "start_enabled": bool(start_count),
+                    "start_count": start_count,
+                    "end_enabled": bool(end_count),
+                    "end_count": end_count,
+                }
             if target_vars:
                 empty_period_targets[teacher] = {
-                    "start_enabled": bool(start_cfg["enabled"] and start_count),
-                    "start_count": start_count,
-                    "end_enabled": bool(end_cfg["enabled"] and end_count),
-                    "end_count": end_count,
                     "vars": target_vars,
+                    "day_config": day_config,
                 }
 
         # 2) يوم/أيام عطلة أسبوعية (قيد ليّن أيضاً - نفس فلسفة القيد أعلاه):
@@ -1371,23 +1457,25 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         total_violated = sum(1 for var in info["vars"].values() if solver.Value(var))
         _add_fulfillment(teacher, requested=total_target, achieved=total_target - total_violated)
         if day_violations:
-            req_parts = []
-            if info["start_enabled"]:
-                unit = "حصة" if info["start_count"] == 1 else "حصص"
-                req_parts.append(f"{info['start_count']} {unit} في بداية اليوم")
-            if info["end_enabled"]:
-                unit = "حصة" if info["end_count"] == 1 else "حصص"
-                req_parts.append(f"{info['end_count']} {unit} في نهاية اليوم")
-            req_desc = " و".join(req_parts) if req_parts else "الحصص المطلوب تفريغها"
+            # كل يوم قد يكون له عدده الخاص المطلوب (نمط "أيام محددة")، لذا
+            # يُبنى وصف الطلب لكل يوم على حدة بدل جملة واحدة موحّدة للجميع.
             parts = []
             for d in sorted(day_violations):
                 violated, target = day_violations[d]
                 left_empty = target - violated
-                parts.append(f"{days[d]} (تم تفريغ {left_empty} من {target})")
+                cfg = info["day_config"][d]
+                req_parts = []
+                if cfg["start_enabled"]:
+                    unit = "حصة" if cfg["start_count"] == 1 else "حصص"
+                    req_parts.append(f"{cfg['start_count']} {unit} من البداية")
+                if cfg["end_enabled"]:
+                    unit = "حصة" if cfg["end_count"] == 1 else "حصص"
+                    req_parts.append(f"{cfg['end_count']} {unit} من النهاية")
+                req_desc = " و".join(req_parts) if req_parts else "الحصص المطلوبة"
+                parts.append(f"{days[d]} (المطلوب {req_desc} — تم تفريغ {left_empty} من {target})")
             _add_note(teacher, (
-                f"ملاحظة: تعذّر تفريغ {req_desc} في كل الأيام المطلوبة كما هو مطلوب، "
-                f"بسبب العدد الفعلي لحصص هذا الأستاذ في الأسبوع — تُرك أكبر عدد ممكن من "
-                f"الحصص فارغاً، وبقيت بعض الحصص مشغولة في الأيام التالية: "
+                "ملاحظة: تعذّر تفريغ الحصص المطلوبة بالكامل «تفريغ حصص في بداية/نهاية "
+                "اليوم» في بعض الأيام لهذا الأستاذ، بسبب العدد الفعلي لحصصه الأسبوعية: "
                 + "، ".join(parts) + "."
             ))
 
@@ -1546,6 +1634,27 @@ def _describe_constraint_detail(key, group):
     option is turned on.
     """
     if key == "empty_periods":
+        if group.get("days_mode") == "specific":
+            chosen = list(dict.fromkeys(group.get("days") or []))
+            if not chosen:
+                return "تفريغ حصص - أيام محددة: لم يُختَر أي يوم بعد"
+            per_day = group.get("per_day") or {}
+            lines = []
+            for day_name in chosen:
+                cfg = per_day.get(day_name) or {}
+                start = cfg.get("start") or group.get("start") or {}
+                end = cfg.get("end") or group.get("end") or {}
+                day_parts = []
+                if start.get("enabled"):
+                    count = int(start.get("count", 1) or 0)
+                    unit = "حصة" if count == 1 else "حصص"
+                    day_parts.append(f"{count} {unit} من البداية")
+                if end.get("enabled"):
+                    count = int(end.get("count", 1) or 0)
+                    unit = "حصة" if count == 1 else "حصص"
+                    day_parts.append(f"{count} {unit} من النهاية")
+                lines.append(f"{day_name}: " + (" و".join(day_parts) if day_parts else "بلا تفريغ"))
+            return "تفريغ حصص - أيام محددة (لكل يوم عدده الخاص): " + "؛ ".join(lines)
         start = group.get("start") or {}
         end = group.get("end") or {}
         parts = []
@@ -1558,11 +1667,7 @@ def _describe_constraint_detail(key, group):
             unit = "حصة" if count == 1 else "حصص"
             parts.append(f"{count} {unit} في نهاية اليوم")
         detail = "تفريغ " + (" و".join(parts) if parts else "(لم يُفعَّل شيء)")
-        if group.get("days_mode") == "specific":
-            chosen = list(dict.fromkeys(group.get("days") or []))
-            detail += " - أيام محددة: " + ("، ".join(chosen) if chosen else "لم يُختَر أي يوم بعد")
-        else:
-            detail += " - كل أيام الأسبوع"
+        detail += " - كل أيام الأسبوع"
         return detail
     if key == "day_off":
         if group.get("mode") == "specific":
@@ -1710,6 +1815,23 @@ def _constraint_difficulty(key, group):
             n = int(group.get("count", 1) or 1)
         return 1.0 + max(0, n - 1) * 1.0
     if key == "empty_periods":
+        chosen_days = list(dict.fromkeys(group.get("days") or []))
+        if group.get("days_mode") == "specific" and chosen_days:
+            per_day = group.get("per_day") or {}
+            total_count = 0
+            both_count = 0
+            for day_name in chosen_days:
+                cfg = per_day.get(day_name) or {}
+                start = cfg.get("start") or group.get("start") or {}
+                end = cfg.get("end") or group.get("end") or {}
+                if start.get("enabled"):
+                    total_count += int(start.get("count", 1) or 1)
+                if end.get("enabled"):
+                    total_count += int(end.get("count", 1) or 1)
+                if start.get("enabled") and end.get("enabled"):
+                    both_count += 1
+            extra = both_count * 1.0 + max(0, len(chosen_days) - 1) * 0.5
+            return 1.0 + max(0, total_count - 1) * 0.5 + extra
         start = group.get("start") or {}
         end = group.get("end") or {}
         total_count = 0
@@ -1718,8 +1840,6 @@ def _constraint_difficulty(key, group):
         if end.get("enabled"):
             total_count += int(end.get("count", 1) or 1)
         extra = 1.0 if (start.get("enabled") and end.get("enabled")) else 0.0
-        if group.get("days_mode") == "specific":
-            extra += max(0, len(list(dict.fromkeys(group.get("days") or []))) - 1) * 0.5
         return 1.0 + max(0, total_count - 1) * 0.5 + extra
     if key == "max_gap_windows":
         m = int(group.get("max", 1) or 0)

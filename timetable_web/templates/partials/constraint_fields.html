@@ -9,33 +9,59 @@
 
 {% if key == "empty_periods" %}
   <div class="subrow">
-    <label style="display: flex; gap: 6px; align-items: center;">
-      <input type="checkbox" name="start_enabled" {% if group.start and group.start.enabled %}checked{% endif %} {% if ro %}disabled{% endif %}>
-      بداية اليوم — عدد الحصص:
-    </label>
-    <input type="number" name="start_count" value="{{ group.start.count if group.start else 1 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
-  </div>
-  <div class="subrow">
-    <label style="display: flex; gap: 6px; align-items: center;">
-      <input type="checkbox" name="end_enabled" {% if group.end and group.end.enabled %}checked{% endif %} {% if ro %}disabled{% endif %}>
-      نهاية اليوم — عدد الحصص:
-    </label>
-    <input type="number" name="end_count" value="{{ group.end.count if group.end else 1 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
-  </div>
-  <div class="subrow">
     <span class="muted" style="font-size: 12px;">نطاق الأيام:</span>
-    <label><input type="radio" name="days_mode" value="all" {% if group.days_mode == "all" or not group.days_mode %}checked{% endif %} {% if ro %}disabled{% endif %}> كل الأيام</label>
-    <label><input type="radio" name="days_mode" value="specific" {% if group.days_mode == "specific" %}checked{% endif %} {% if ro %}disabled{% endif %}> أيام محددة</label>
+    <label><input type="radio" name="days_mode" value="all" {% if group.days_mode == "all" or not group.days_mode %}checked{% endif %} {% if ro %}disabled{% endif %}> كل الأيام (نفس العدد للجميع)</label>
+    <label><input type="radio" name="days_mode" value="specific" {% if group.days_mode == "specific" %}checked{% endif %} {% if ro %}disabled{% endif %}> أيام محددة (عدد مختلف لكل يوم)</label>
   </div>
+
   {% if group.days_mode == "specific" %}
-  <div class="subrow">
-    <span class="muted" style="font-size: 12px;">اختر الأيام:</span>
-    <div class="days-picker">
-      {% for d in days %}
-        <label><input type="checkbox" name="day_{{ d }}" {% if d in group.days %}checked{% endif %} {% if ro %}disabled{% endif %}> {{ d }}</label>
-      {% endfor %}
+    <div class="per-day-empty-periods">
+      <table class="per-day-table">
+        <thead>
+          <tr>
+            <th>اليوم</th>
+            <th colspan="2">بداية اليوم</th>
+            <th colspan="2">نهاية اليوم</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in days %}
+            {% set pd = group.per_day.get(d, {}) %}
+            {% set pd_start = pd.get('start', group.start) or {} %}
+            {% set pd_end = pd.get('end', group.end) or {} %}
+            <tr>
+              <td>{{ d }}</td>
+              <td>
+                <label class="cbox"><input type="checkbox" name="day_{{ d }}_start_enabled" {% if pd_start.enabled %}checked{% endif %} {% if ro %}disabled{% endif %}> تفعيل</label>
+              </td>
+              <td><input type="number" name="day_{{ d }}_start_count" value="{{ pd_start.count if pd_start.count is not none else 1 }}" min="0" max="10" style="width: 55px;" {% if ro %}disabled{% endif %}></td>
+              <td>
+                <label class="cbox"><input type="checkbox" name="day_{{ d }}_end_enabled" {% if pd_end.enabled %}checked{% endif %} {% if ro %}disabled{% endif %}> تفعيل</label>
+              </td>
+              <td><input type="number" name="day_{{ d }}_end_count" value="{{ pd_end.count if pd_end.count is not none else 1 }}" min="0" max="10" style="width: 55px;" {% if ro %}disabled{% endif %}></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted" style="font-size: 11px; margin: 6px 0 0 0;">
+        فعِّل "بداية" و/أو "نهاية" لأي يوم بعدده الخاص — الأيام التي لا تُفعَّل فيها أي منهما تبقى بلا تفريغ.
+      </p>
     </div>
-  </div>
+  {% else %}
+    <div class="subrow">
+      <label style="display: flex; gap: 6px; align-items: center;">
+        <input type="checkbox" name="start_enabled" {% if group.start and group.start.enabled %}checked{% endif %} {% if ro %}disabled{% endif %}>
+        بداية اليوم — عدد الحصص:
+      </label>
+      <input type="number" name="start_count" value="{{ group.start.count if group.start else 1 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
+    </div>
+    <div class="subrow">
+      <label style="display: flex; gap: 6px; align-items: center;">
+        <input type="checkbox" name="end_enabled" {% if group.end and group.end.enabled %}checked{% endif %} {% if ro %}disabled{% endif %}>
+        نهاية اليوم — عدد الحصص:
+      </label>
+      <input type="number" name="end_count" value="{{ group.end.count if group.end else 1 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
+    </div>
   {% endif %}
 
 {% elif key == "day_off" %}

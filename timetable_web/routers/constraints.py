@@ -148,12 +148,38 @@ def _parse_group_from_form(key: str, form: dict, days: list[str]) -> dict:
             return default
 
     if key == "empty_periods":
+        days_mode = (
+            form.get("days_mode", "all") if form.get("days_mode") in ("all", "specific") else "all"
+        )
+        if days_mode == "all":
+            return {
+                "enabled": _b("enabled"),
+                "start": {"enabled": _b("start_enabled"), "count": _int("start_count", 1)},
+                "end":   {"enabled": _b("end_enabled"),   "count": _int("end_count", 1)},
+                "days_mode": "all",
+                "days": [],
+                "per_day": {},
+            }
+        # "specific" — كل يوم له عدده الخاص من البداية و/أو النهاية. اليوم
+        # "مُختار" ضمنياً بمجرد تفعيل بداية و/أو نهاية له؛ لا حاجة لمربّع
+        # اختيار منفصل. الأيام بلا أي تفعيل لا تدخل في "days" ولا "per_day".
+        per_day: dict = {}
+        for d in days:
+            start_enabled = _b(f"day_{d}_start_enabled")
+            end_enabled = _b(f"day_{d}_end_enabled")
+            if not start_enabled and not end_enabled:
+                continue
+            per_day[d] = {
+                "start": {"enabled": start_enabled, "count": _int(f"day_{d}_start_count", 1)},
+                "end": {"enabled": end_enabled, "count": _int(f"day_{d}_end_count", 1)},
+            }
         return {
             "enabled": _b("enabled"),
-            "start": {"enabled": _b("start_enabled"), "count": _int("start_count", 1)},
-            "end":   {"enabled": _b("end_enabled"),   "count": _int("end_count", 1)},
-            "days_mode": form.get("days_mode", "all") if form.get("days_mode") in ("all", "specific") else "all",
-            "days": [d for d in days if form.get(f"day_{d}") == "on"],
+            "start": {"enabled": False, "count": 1},
+            "end": {"enabled": False, "count": 1},
+            "days_mode": "specific",
+            "days": list(per_day.keys()),
+            "per_day": per_day,
         }
     if key == "day_off":
         return {

@@ -112,6 +112,85 @@ def test_teacher_update_requires_active_override(client):
     assert r.status_code == 400
 
 
+def test_empty_periods_specific_per_day_defaults(client, store):
+    """كل يوم بعدده الخاص: الأحد تفريغ 2 من البداية، الاثنين تفريغ 3 من النهاية."""
+    r = client.post(
+        "/constraints/defaults/empty_periods",
+        data={
+            "enabled": "on",
+            "days_mode": "specific",
+            "day_الأحد_start_enabled": "on", "day_الأحد_start_count": "2",
+            "day_الاثنين_end_enabled": "on", "day_الاثنين_end_count": "3",
+        },
+    )
+    assert r.status_code == 200
+    g = store.data["scheduling_constraints"]["defaults"]["empty_periods"]
+    assert g["enabled"] is True
+    assert g["days_mode"] == "specific"
+    assert set(g["days"]) == {"الأحد", "الاثنين"}
+    assert g["per_day"]["الأحد"]["start"] == {"enabled": True, "count": 2}
+    assert g["per_day"]["الأحد"]["end"] == {"enabled": False, "count": 1}
+    assert g["per_day"]["الاثنين"]["end"] == {"enabled": True, "count": 3}
+    assert g["per_day"]["الاثنين"]["start"] == {"enabled": False, "count": 1}
+    # اليوم الثالث (الثلاثاء) لم يُفعَّل فيه شيء -> لا يظهر في per_day إطلاقاً
+    assert "الثلاثاء" not in g["per_day"]
+
+
+def test_empty_periods_specific_per_day_response_reflects_values(client):
+    """الرد المُعاد بعد الحفظ يعرض القيم الصحيحة لكل يوم في جدول per-day."""
+    r = client.post(
+        "/constraints/defaults/empty_periods",
+        data={
+            "enabled": "on",
+            "days_mode": "specific",
+            "day_الأحد_start_enabled": "on", "day_الأحد_start_count": "2",
+        },
+    )
+    assert r.status_code == 200
+    assert 'name="day_الأحد_start_count" value="2"' in r.text
+    assert 'name="day_الأحد_start_enabled"  checked' in r.text or 'name="day_الأحد_start_enabled" checked' in r.text
+
+
+def test_empty_periods_switching_back_to_all_clears_per_day(client, store):
+    """الرجوع من 'أيام محددة' إلى 'كل الأيام' يمسح per_day تماماً."""
+    client.post(
+        "/constraints/defaults/empty_periods",
+        data={
+            "enabled": "on", "days_mode": "specific",
+            "day_الأحد_start_enabled": "on", "day_الأحد_start_count": "2",
+        },
+    )
+    r = client.post(
+        "/constraints/defaults/empty_periods",
+        data={"enabled": "on", "days_mode": "all", "start_enabled": "on", "start_count": "1"},
+    )
+    assert r.status_code == 200
+    g = store.data["scheduling_constraints"]["defaults"]["empty_periods"]
+    assert g["days_mode"] == "all"
+    assert g["per_day"] == {}
+    assert g["days"] == []
+    assert g["start"] == {"enabled": True, "count": 1}
+
+
+def test_empty_periods_per_day_for_teacher_override(client, store):
+    """نفس ميزة اليوم المخصَّص تعمل أيضاً على مستوى تخصيص أستاذ معيّن."""
+    client.post(f"/constraints/teacher/{TEACHER_ENC}/empty_periods/override", data={"on": "on"})
+    r = client.post(
+        f"/constraints/teacher/{TEACHER_ENC}/empty_periods",
+        data={
+            "enabled": "on", "days_mode": "specific",
+            "day_الثلاثاء_start_enabled": "on", "day_الثلاثاء_start_count": "1",
+            "day_الثلاثاء_end_enabled": "on", "day_الثلاثاء_end_count": "2",
+        },
+    )
+    assert r.status_code == 200
+    g = store.data["scheduling_constraints"]["per_teacher"][TEACHER]["empty_periods"]
+    assert g["per_day"]["الثلاثاء"] == {
+        "start": {"enabled": True, "count": 1},
+        "end": {"enabled": True, "count": 2},
+    }
+
+
 def test_defaults_response_never_returns_disabled_fields(client):
     """Regression: كان تفعيل قيد افتراضي يُعيد كل الحقول التحتية disabled بالخطأ."""
     r = client.post(
