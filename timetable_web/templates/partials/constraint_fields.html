@@ -95,3 +95,34 @@
 {% elif key == "start_from_beginning" %}
   <p class="muted" style="font-size: 12px; margin: 4px 0 0 0;">لا إعدادات إضافية — إما مفعَّل أو لا.</p>
 {% endif %}
+
+<script>
+  // إصلاح "التفعيل المزدوج": مفتاح "تفعيل هذا القيد" العام مستقل عن كل
+  // المفاتيح الفرعية (يوم في تفريغ الحصص، يوم في يوم العطلة، ...) - فإن
+  // ضبط المستخدم أي إعداد فرعي (فعّل مربعاً) دون تفعيل المفتاح العام، يبدو
+  // القيد "مضبوطاً" بصرياً لكن محرك الحل يتجاهله بالكامل لأن enabled=false.
+  // نصلح هذا هنا: أي تفعيل لمربّع فرعي (غير "enabled" نفسه و"days_mode"/
+  // "mode") يُفعِّل المفتاح العام تلقائياً معه - لا نُعطِّل المفتاح العام
+  // تلقائياً أبداً، فقط نُفعِّله. يعمل هذا على النسخة المُدمَّجة داخل
+  // constraint_fields.html أياً كان الأب (defaults أو teacher pane) لأنه
+  // يبحث عن أقرب <form>.
+  (function () {
+    var scriptEl = document.currentScript;
+    var form = scriptEl && scriptEl.closest("form");
+    if (!form) return;
+    form.addEventListener(
+      "change",
+      function (e) {
+        var t = e.target;
+        if (!t || t.tagName !== "INPUT" || t.type !== "checkbox") return;
+        if (t.name === "enabled") return; // المفتاح العام نفسه
+        if (!t.checked) return; // نُفعِّل فقط، لا نُعطِّل تلقائياً أبداً
+        var master = form.querySelector('input[name="enabled"]');
+        if (master && !master.checked) {
+          master.checked = true;
+        }
+      },
+      true // capture: يجب أن يُنفَّذ قبل أن يلتقط HTMX بيانات الفورم عند الفقاعة
+    );
+  })();
+</script>
