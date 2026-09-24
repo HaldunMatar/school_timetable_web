@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -24,6 +24,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 router = APIRouter(prefix="/solve", tags=["solve"])
+
+# الخيارات المسموحة لمهلة الحلّ (بالثواني) — تُعرَض في solve.html كقائمة اختيار.
+# نتحقق من القيمة القادمة من النموذج مقابل هذه المجموعة بدل الوثوق بها مباشرة.
+ALLOWED_TIME_LIMITS = {60, 180, 300, 600, 900}
+DEFAULT_TIME_LIMIT = 300
+
+
+def _clean_time_limit(max_time: int) -> int:
+    return max_time if max_time in ALLOWED_TIME_LIMITS else DEFAULT_TIME_LIMIT
 
 
 def _need_data():
@@ -66,7 +75,7 @@ def status(request: Request) -> HTMLResponse:
 
 # --------------------------------------------------- workers ----------
 
-def _run_full_solve(store):
+def _run_full_solve(store, max_time_in_seconds: int = DEFAULT_TIME_LIMIT):
     """Solve + generate_all_pdfs. Runs in a background thread."""
     def _prog(msg: str) -> None:
         store.log(msg)
@@ -74,11 +83,12 @@ def _run_full_solve(store):
 
     try:
         _set_status(store, "running", "جاري تحميل البيانات وتحضير المتطلبات...", 5)
-        _prog("بدء الحلّ (مهلة 5 دقائق)...")
+        minutes = max_time_in_seconds // 60
+        _prog(f"بدء الحلّ (مهلة {minutes} دقيقة/دقائق)...")
 
         result = scheduler.solve_timetable(
             store.data,
-            max_time_in_seconds=300,
+            max_time_in_seconds=max_time_in_seconds,
             num_workers=8,
             progress=_prog,
             warm_start=store.last_schedule_result,
@@ -108,7 +118,7 @@ def _run_full_solve(store):
         store.log(f"خطأ: {exc}")
 
 
-def _run_fulfillment_only(store):
+def _run_fulfillment_only(store, max_time_in_seconds: int = DEFAULT_TIME_LIMIT):
     """Solve + generate_fulfillment_report_pdf only."""
     def _prog(msg: str) -> None:
         store.log(msg)
@@ -118,6 +128,7 @@ def _run_fulfillment_only(store):
         _set_status(store, "running", "جاري الحلّ لحساب نسبة التحقق...", 5)
         path, section_sched = pdf_gen.generate_fulfillment_report_pdf(
             store.data, str(OUTPUT_DIR),
+            max_time_in_seconds=max_time_in_seconds,
             progress=_prog,
             warm_start=store.last_schedule_result,
         )
@@ -132,11 +143,11 @@ def _run_fulfillment_only(store):
         store.log(f"خطأ: {exc}")
 
 
-def _start_thread(store, target) -> None:
+def _start_thread(store, target, *args) -> None:
     if store.solve_busy:
         raise HTTPException(409, "هناك عملية توليد قيد التشغيل حالياً — الرجاء الانتظار حتى تنتهي")
     store.generated_files = {}
-    t = threading.Thread(target=target, args=(store,), name="solve", daemon=True)
+    t = threading.Thread(target=target, args=(store, *args), name="solve", daemon=True)
     store.solve_thread = t
     t.start()
 
@@ -144,18 +155,18 @@ def _start_thread(store, target) -> None:
 # --------------------------------------------------- action endpoints -
 
 @router.post("/generate-all", response_class=HTMLResponse)
-def generate_all(request: Request) -> HTMLResponse:
+def generate_all(request: Request, max_time: int = Form(DEFAULT_TIME_LIMIT)) -> HTMLResponse:
     store = _need_data()
-    _start_thread(store, _run_full_solve)
+    _start_thread(store, _run_full_solve, _clean_time_limit(max_time))
     return TEMPLATES.TemplateResponse(
         request, "partials/solve_status.html", {"store": store}
     )
 
 
 @router.post("/fulfillment-report", response_class=HTMLResponse)
-def fulfillment(request: Request) -> HTMLResponse:
+def fulfillment(request: Request, max_time: int = Form(DEFAULT_TIME_LIMIT)) -> HTMLResponse:
     store = _need_data()
-    _start_thread(store, _run_fulfillment_only)
+    _start_thread(store, _run_fulfillment_only, _clean_time_limit(max_time))
     return TEMPLATES.TemplateResponse(
         request, "partials/solve_status.html", {"store": store}
     )

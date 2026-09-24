@@ -891,7 +891,8 @@ def generate_complexity_report_pdf(data, out_dir, progress=None):
     return str(pdf_path)
 
 
-def generate_fulfillment_report_pdf(data, out_dir, progress=None, warm_start=None):
+def generate_fulfillment_report_pdf(data, out_dir, progress=None, warm_start=None,
+                                     max_time_in_seconds=300):
     """
     Build تقرير_نسبة_تحقق_رغبات_الأساتذة.pdf on its own, from its own
     independent GUI button - decoupled from "توليد البرامج" (which builds
@@ -936,9 +937,10 @@ def generate_fulfillment_report_pdf(data, out_dir, progress=None, warm_start=Non
         )
 
     if progress:
-        progress("جاري حل الجدولة لقياس نسبة تحقق رغبات الأساتذة (قد يستغرق حتى 5 دقائق)...")
+        minutes = max_time_in_seconds // 60
+        progress(f"جاري حل الجدولة لقياس نسبة تحقق رغبات الأساتذة (قد يستغرق حتى {minutes} دقيقة/دقائق)...")
     _status_name, section_sched, _constraint_notes, constraint_fulfillment = scheduler.solve_timetable(
-        data, progress=progress, warm_start=warm_start)
+        data, max_time_in_seconds=max_time_in_seconds, progress=progress, warm_start=warm_start)
 
     fulfillment_rows = scheduler.teacher_fulfillment_report(data, constraint_fulfillment)
     if not fulfillment_rows:

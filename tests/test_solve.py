@@ -17,6 +17,87 @@ def test_index(client):
     assert "توليد البرامج الثلاثة" in r.text
 
 
+def test_solve_page_shows_time_limit_select(client):
+    r = client.get("/solve")
+    assert r.status_code == 200
+    assert 'name="max_time"' in r.text
+    for seconds in ("60", "180", "300", "600", "900"):
+        assert f'value="{seconds}"' in r.text
+
+
+# ---------- التحكم بمهلة الحلّ (max_time) ----------
+
+def test_clean_time_limit_allowlist():
+    from timetable_web.routers.solve import DEFAULT_TIME_LIMIT, _clean_time_limit
+    assert _clean_time_limit(60) == 60
+    assert _clean_time_limit(300) == 300
+    assert _clean_time_limit(900) == 900
+    assert _clean_time_limit(999999) == DEFAULT_TIME_LIMIT
+    assert _clean_time_limit(-5) == DEFAULT_TIME_LIMIT
+
+
+def test_generate_all_passes_selected_max_time_to_solver(client, store, tmp_workspace, monkeypatch):
+    captured = {}
+
+    def fake_solve(data, max_time_in_seconds=300, num_workers=8, progress=None, warm_start=None):
+        captured["max_time_in_seconds"] = max_time_in_seconds
+        return "OPTIMAL", {}, {}, {}
+
+    monkeypatch.setattr("timetable_web.core.scheduler.solve_timetable", fake_solve)
+    monkeypatch.setattr("timetable_web.core.pdf_gen.generate_all_pdfs", lambda *a, **k: {})
+
+    r = client.post("/solve/generate-all", data={"max_time": "60"})
+    assert r.status_code == 200
+    for _ in range(50):
+        if store.solve_status in ("done", "failed"):
+            break
+        time.sleep(0.1)
+
+    assert store.solve_status == "done", store.solve_message
+    assert captured["max_time_in_seconds"] == 60
+
+
+def test_generate_all_clamps_tampered_max_time(client, store, tmp_workspace, monkeypatch):
+    """قيمة خارج القائمة المسموحة (مثلاً مُعدَّلة يدوياً في الطلب) تُرجَع للافتراضي، لا تُمرَّر كما هي."""
+    captured = {}
+
+    def fake_solve(data, max_time_in_seconds=300, num_workers=8, progress=None, warm_start=None):
+        captured["max_time_in_seconds"] = max_time_in_seconds
+        return "OPTIMAL", {}, {}, {}
+
+    monkeypatch.setattr("timetable_web.core.scheduler.solve_timetable", fake_solve)
+    monkeypatch.setattr("timetable_web.core.pdf_gen.generate_all_pdfs", lambda *a, **k: {})
+
+    r = client.post("/solve/generate-all", data={"max_time": "999999"})
+    assert r.status_code == 200
+    for _ in range(50):
+        if store.solve_status in ("done", "failed"):
+            break
+        time.sleep(0.1)
+
+    assert captured["max_time_in_seconds"] == 300
+
+
+def test_fulfillment_report_passes_selected_max_time(client, store, tmp_workspace, monkeypatch):
+    captured = {}
+
+    def fake_gen(data, out_dir, progress=None, warm_start=None, max_time_in_seconds=300):
+        captured["max_time_in_seconds"] = max_time_in_seconds
+        return "/tmp/fake.pdf", {}
+
+    monkeypatch.setattr("timetable_web.core.pdf_gen.generate_fulfillment_report_pdf", fake_gen)
+
+    r = client.post("/solve/fulfillment-report", data={"max_time": "180"})
+    assert r.status_code == 200
+    for _ in range(50):
+        if store.solve_status in ("done", "failed"):
+            break
+        time.sleep(0.1)
+
+    assert store.solve_status == "done", store.solve_message
+    assert captured["max_time_in_seconds"] == 180
+
+
 def test_status_initial(client):
     r = client.get("/solve/status")
     assert r.status_code == 200

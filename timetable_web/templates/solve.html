@@ -2,17 +2,30 @@
 {% block title %}التوليد{% endblock %}
 {% block content %}
 <section class="stack">
-  <div class="row" style="justify-content: space-between; align-items: baseline;">
+  <div class="row" style="justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 10px;">
     <h1>التوليد</h1>
-    <span class="muted">محرك CP-SAT · مهلة الحلّ القصوى: 5 دقائق</span>
+    <label class="row" style="gap: 6px; align-items: center; font-size: 13px;">
+      <span class="muted">مهلة الحلّ القصوى (محرك CP-SAT):</span>
+      <select id="solve-max-time" name="max_time" style="padding: 4px 8px;">
+        <option value="60">دقيقة واحدة</option>
+        <option value="180">3 دقائق</option>
+        <option value="300" selected>5 دقائق (الافتراضي)</option>
+        <option value="600">10 دقائق</option>
+        <option value="900">15 دقيقة</option>
+      </select>
+    </label>
   </div>
+  <p class="muted" style="font-size: 12px; margin: -6px 0 0 0;">
+    التوليد عملية "تحسين" — المحرك يستمر بالبحث عن أفضل توزيع ممكن حتى نهاية المهلة المختارة، لا يتوقف بمجرد إيجاد حلّ صالح. مهلة أطول = فرصة أكبر لجدول أفضل، لكن انتظار أطول.
+  </p>
 
   <div class="solve-actions">
     <button class="btn primary big"
             hx-post="/solve/generate-all"
+            hx-include="#solve-max-time"
             hx-target="#solve-status" hx-swap="innerHTML"
             hx-disabled-elt="this, .btn.big"
-            hx-confirm="سيتم تشغيل حلّ CP-SAT وقد يستغرق حتى 5 دقائق. متابعة؟">
+            hx-confirm="سيتم تشغيل حلّ CP-SAT حتى المهلة المختارة أعلاه. متابعة؟">
       ⚙ توليد البرامج الثلاثة (PDF)
     </button>
     <button class="btn"
@@ -29,9 +42,10 @@
     </button>
     <button class="btn big"
             hx-post="/solve/fulfillment-report"
+            hx-include="#solve-max-time"
             hx-target="#solve-status" hx-swap="innerHTML"
             hx-disabled-elt="this, .btn.big"
-            hx-confirm="سيتم تشغيل حلّ CP-SAT لحساب نسبة التحقق. قد يستغرق حتى 5 دقائق. متابعة؟">
+            hx-confirm="سيتم تشغيل حلّ CP-SAT لحساب نسبة التحقق حتى المهلة المختارة أعلاه. متابعة؟">
       📊 تقرير نسبة تحقق الرغبات
     </button>
   </div>
