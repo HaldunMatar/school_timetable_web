@@ -68,7 +68,13 @@ def _compute(data: dict) -> dict:
         warnings.append(f"إسناد إجباري غير صالح: {exc}")
 
     # roster stats
-    _, multi, unique_count = scheduler.teacher_roster(data)
+    try:
+        _, multi, unique_count = scheduler.teacher_roster(data)
+    except Exception:
+        # السبب غالباً نفس ما أظهره validate_manual_assignments أعلاه (تحذير
+        # مضاف بالفعل لِـ warnings) - لا نكرّره هنا، فقط نمنع الصفحة كلها من
+        # الانهيار بسبب حالة مؤقتة غير قابلة للتوزيع في إحدى المواد.
+        multi, unique_count = {}, len(set(teachers_roster))
 
     return {
         "kpi_subjects": len(subjects),

@@ -512,7 +512,16 @@ def teacher_current_periods(data, name):
     for subject in data["subjects"]:
         if name not in subject["names"]:
             continue
-        for slot in pack_subject(data, subject):
+        try:
+            slots = pack_subject(data, subject)
+        except RuntimeError:
+            # مادة وصلت مؤقتاً لحالة يتعذّر توزيعها (كل أساتذتها أصبح لديهم
+            # إسناد إجباري يدوي بلا أستاذ حر يستلم الباقي) - هذا مجرد رقم
+            # عرض توضيحي وليس بوابة تحقق، فلا يجوز أن يُسقِط أي صفحة تستدعيه
+            # (مثل لوحة المعلومات التي يُفترض أن تُظهر تحذيراً واضحاً عبر
+            # validate_manual_assignments بدل الانهيار قبل الوصول إليه).
+            continue
+        for slot in slots:
             if slot["name"] == name:
                 total += slot["total"]
     return total
