@@ -30,14 +30,29 @@ TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+def _school_name_for(data_file: str | None) -> str:
+    """يقرأ اسم المدرسة من ملف بيانات مشرف — فارغ إن لم يُضبَط أو الملف غير موجود."""
+    if not data_file:
+        return ""
+    target = SCHOOLS_DIR / data_file
+    if not target.exists():
+        return ""
+    try:
+        with target.open("r", encoding="utf-8") as f:
+            return (json.load(f).get("meta", {}).get("school_name") or "").strip()
+    except (json.JSONDecodeError, OSError):
+        return ""
+
+
 @router.get("", response_class=HTMLResponse)
 def index(request: Request, admin: User = Depends(require_admin)) -> HTMLResponse:
     users = [u for u in load_users() if not u.is_admin()]
     admins = [u for u in load_users() if u.is_admin()]
+    school_names = {u.username: _school_name_for(u.data_file) for u in users}
     return TEMPLATES.TemplateResponse(
         request,
         "admin/users.html",
-        {"users": users, "admins": admins, "me": admin},
+        {"users": users, "admins": admins, "me": admin, "school_names": school_names},
     )
 
 
@@ -47,6 +62,7 @@ def create_user(
     admin: User = Depends(require_admin),
     username: str = Form(...),
     password: str = Form(...),
+    school_name: str = Form(""),
     periods_per_day: int = Form(7, ge=1, le=12),
     nisab_reference: int = Form(19, ge=1, le=60),
     day_الأحد: str = Form(""),
@@ -81,6 +97,7 @@ def create_user(
     SCHOOLS_DIR.mkdir(parents=True, exist_ok=True)
 
     blank = scheduler.new_blank_data(days, periods_per_day, nisab_reference)
+    blank["meta"]["school_name"] = school_name.strip()
     with target.open("w", encoding="utf-8") as f:
         json.dump(blank, f, ensure_ascii=False, indent=2)
 

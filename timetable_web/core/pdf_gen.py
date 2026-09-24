@@ -152,8 +152,19 @@ def _new_doc(out_path, title):
     )
 
 
-def _cover_flowables(title, subtitle, meta_line):
-    flow = [Spacer(1, 55 * mm)]
+def _school_name_of(data):
+    """اسم المدرسة من data['meta']['school_name'] — None إن كان فارغاً/غير
+    مضبوط، حتى تتجنّب دوال البناء طباعة سطر فارغ في التقارير."""
+    name = (data.get("meta") or {}).get("school_name") or ""
+    name = name.strip()
+    return name or None
+
+
+def _cover_flowables(title, subtitle, meta_line, school_name=None):
+    flow = [Spacer(1, 45 * mm if school_name else 55 * mm)]
+    if school_name:
+        flow.append(_p(school_name, 18, bold=True, color="#1F4E78"))
+        flow.append(Spacer(1, 6 * mm))
     flow.append(_p(title, 30, bold=True, color="#1a1a1a"))
     flow.append(Spacer(1, 4 * mm))
     flow.append(_p(subtitle, 15, color="#555555"))
@@ -289,6 +300,7 @@ def _build_section_flowables(data, section_sched, section_ids, teacher_colors):
         "برنامج الشعب الأسبوعي",
         f"{len(days)} أيام × {periods_per_day} حصص يومياً",
         f"{len(section_ids)} شعبة  —  كل خانة ملوّنة حسب الأستاذ المكلّف",
+        school_name=_school_name_of(data),
     ))
     for (track, s) in section_ids:
         cells = section_sched[f"{track}|{s}"]
@@ -319,6 +331,7 @@ def _build_teacher_flowables(data, section_sched, section_ids, teacher_names, te
         "برنامج الأساتذة الأسبوعي",
         f"{len(days)} أيام × {periods_per_day} حصص يومياً",
         f"{len(teacher_names)} أستاذاً  —  كل خانة ملوّنة حسب الشعبة",
+        school_name=_school_name_of(data),
     ))
     for tname in teacher_names:
         grid = [None] * nslots
@@ -352,11 +365,13 @@ def _build_teacher_flowables(data, section_sched, section_ids, teacher_names, te
 
 # ---------------------------------------------------------------- roster --
 
-def _build_list_flowables(rows, multi):
-    flow = [
-        _p("قائمة الأساتذة حسب برنامج الحصص", 22, bold=True, color="#1a1a1a"),
-        Spacer(1, 2 * mm),
-    ]
+def _build_list_flowables(rows, multi, school_name=None):
+    flow = []
+    if school_name:
+        flow.append(_p(school_name, 13, bold=True, color="#1F4E78"))
+        flow.append(Spacer(1, 2 * mm))
+    flow.append(_p("قائمة الأساتذة حسب برنامج الحصص", 22, bold=True, color="#1a1a1a"))
+    flow.append(Spacer(1, 2 * mm))
     n_unique = len(set(r["teacher"] for r in rows))
     subtitle = (
         f"{len(rows)} سطراً — {n_unique} أستاذاً فعلياً، مرتبة حسب المادة. "
@@ -422,7 +437,7 @@ def _build_list_flowables(rows, multi):
     return flow
 
 
-def _build_constraints_report_flowables(report_rows):
+def _build_constraints_report_flowables(report_rows, school_name=None):
     """
     Build "تقرير الشروط الخاصة بجدولة الأساتذة" - a standalone report PDF
     (no weekly grids, unlike the other three) listing, one block per
@@ -433,10 +448,12 @@ def _build_constraints_report_flowables(report_rows):
     section_sched: it can be built even before the solver has run, and
     only lists teachers who have at least one constraint enabled.
     """
-    flow = [
-        _p("تقرير الشروط الخاصة بجدولة الأساتذة", 22, bold=True, color="#1a1a1a"),
-        Spacer(1, 2 * mm),
-    ]
+    flow = []
+    if school_name:
+        flow.append(_p(school_name, 13, bold=True, color="#1F4E78"))
+        flow.append(Spacer(1, 2 * mm))
+    flow.append(_p("تقرير الشروط الخاصة بجدولة الأساتذة", 22, bold=True, color="#1a1a1a"))
+    flow.append(Spacer(1, 2 * mm))
     n_items = sum(len(r["items"]) for r in report_rows)
     subtitle = (
         f"{len(report_rows)} أستاذاً لديهم شروط جدولة مفعّلة ({n_items} شرطاً بالإجمالي) — "
@@ -565,7 +582,7 @@ def _build_fulfillment_chart(counts):
     return d
 
 
-def _build_fulfillment_report_flowables(rows, counts):
+def _build_fulfillment_report_flowables(rows, counts, school_name=None):
     """
     Build "تقرير نسبة تحقق رغبات الأساتذة" - a standalone report PDF: a
     donut chart summarizing how many teachers had their scheduling
@@ -575,10 +592,12 @@ def _build_fulfillment_report_flowables(rows, counts):
     come from scheduler.teacher_fulfillment_report(...) and
     scheduler.fulfillment_category_counts(rows).
     """
-    flow = [
-        _p("تقرير نسبة تحقق رغبات الأساتذة في الجدولة", 20, bold=True, color="#1a1a1a"),
-        Spacer(1, 2 * mm),
-    ]
+    flow = []
+    if school_name:
+        flow.append(_p(school_name, 13, bold=True, color="#1F4E78"))
+        flow.append(Spacer(1, 2 * mm))
+    flow.append(_p("تقرير نسبة تحقق رغبات الأساتذة في الجدولة", 20, bold=True, color="#1a1a1a"))
+    flow.append(Spacer(1, 2 * mm))
     total = sum(counts.values())
     subtitle = (
         f"{total} أستاذاً لديهم شروط جدولة مفعّلة - التصنيف حسب النسبة الفعلية التي "
@@ -678,6 +697,7 @@ def generate_all_pdfs(data, section_sched, out_dir, progress=None, constraint_no
     _ensure_fonts()
 
     rows, multi, _unique_count = scheduler.teacher_roster(data)
+    school_name = _school_name_of(data)
 
     if progress:
         progress("جاري بناء صفحات الجداول...")
@@ -687,7 +707,7 @@ def generate_all_pdfs(data, section_sched, out_dir, progress=None, constraint_no
     flow_teachers = _build_teacher_flowables(
         data, section_sched, section_ids, teacher_names, teacher_subjects,
         section_colors, constraint_notes=constraint_notes)
-    flow_list = _build_list_flowables(rows, multi)
+    flow_list = _build_list_flowables(rows, multi, school_name=school_name)
 
     jobs = {
         "برنامج الشعب": (flow_sections, out_dir / "برنامج_الشعب.pdf"),
@@ -705,15 +725,17 @@ def generate_all_pdfs(data, section_sched, out_dir, progress=None, constraint_no
     fulfillment_rows = scheduler.teacher_fulfillment_report(data, constraint_fulfillment or {})
     if fulfillment_rows:
         fulfillment_counts = scheduler.fulfillment_category_counts(fulfillment_rows)
-        flow_fulfillment = _build_fulfillment_report_flowables(fulfillment_rows, fulfillment_counts)
+        flow_fulfillment = _build_fulfillment_report_flowables(
+            fulfillment_rows, fulfillment_counts, school_name=school_name)
         jobs["تقرير نسبة تحقق رغبات الأساتذة"] = (
             flow_fulfillment, out_dir / "تقرير_نسبة_تحقق_رغبات_الأساتذة.pdf")
 
     if progress:
         progress("جاري توليد ملفات PDF...")
 
+    doc_title_prefix = f"{school_name} — " if school_name else ""
     for name, (flow, pdf_path) in jobs.items():
-        doc = _new_doc(pdf_path, title=name)
+        doc = _new_doc(pdf_path, title=doc_title_prefix + name)
         doc.build(flow)
         if progress:
             progress(f"تم إنشاء: {pdf_path.name}")
@@ -747,12 +769,14 @@ def generate_constraints_report_pdf(data, out_dir, progress=None):
             "من تبويب \"قيود الجدولة\" أولاً."
         )
 
-    flow = _build_constraints_report_flowables(rows)
+    school_name = _school_name_of(data)
+    flow = _build_constraints_report_flowables(rows, school_name=school_name)
     pdf_path = out_dir / "تقرير_الشروط_الخاصة_بجدولة_الأساتذة.pdf"
 
     if progress:
         progress("جاري توليد ملف PDF...")
-    doc = _new_doc(pdf_path, title="تقرير الشروط الخاصة بجدولة الأساتذة")
+    doc_title = (f"{school_name} — " if school_name else "") + "تقرير الشروط الخاصة بجدولة الأساتذة"
+    doc = _new_doc(pdf_path, title=doc_title)
     doc.build(flow)
     if progress:
         progress(f"تم إنشاء: {pdf_path.name}")
@@ -760,7 +784,7 @@ def generate_constraints_report_pdf(data, out_dir, progress=None):
     return str(pdf_path)
 
 
-def _build_complexity_report_flowables(rows):
+def _build_complexity_report_flowables(rows, school_name=None):
     """
     Build "ترتيب الأساتذة حسب كثرة وتعقيد الشروط" - one row per teacher
     (already sorted most-to-least demanding by
@@ -769,10 +793,12 @@ def _build_complexity_report_flowables(rows):
     column (as asked - "ذكر الشروط في عمود") rather than spread across
     several columns.
     """
-    flow = [
-        _p("ترتيب الأساتذة حسب كثرة وتعقيد شروط الجدولة", 20, bold=True, color="#1a1a1a"),
-        Spacer(1, 2 * mm),
-    ]
+    flow = []
+    if school_name:
+        flow.append(_p(school_name, 13, bold=True, color="#1F4E78"))
+        flow.append(Spacer(1, 2 * mm))
+    flow.append(_p("ترتيب الأساتذة حسب كثرة وتعقيد شروط الجدولة", 20, bold=True, color="#1a1a1a"))
+    flow.append(Spacer(1, 2 * mm))
     subtitle = (
         f"{len(rows)} أستاذاً لديهم شروط جدولة مفعّلة، مرتّبون من الأكثر تعقيداً إلى الأقل. "
         f"\"عدد الشروط\" هو عدد أنواع القيود المفعّلة له (من 1 إلى 4)، و\"درجة التعقيد\" رقم "
@@ -850,12 +876,14 @@ def generate_complexity_report_pdf(data, out_dir, progress=None):
             "\"قيود الجدولة\" أولاً."
         )
 
-    flow = _build_complexity_report_flowables(rows)
+    school_name = _school_name_of(data)
+    flow = _build_complexity_report_flowables(rows, school_name=school_name)
     pdf_path = out_dir / "ترتيب_الأساتذة_حسب_تعقيد_الشروط.pdf"
 
     if progress:
         progress("جاري توليد ملف PDF...")
-    doc = _new_doc(pdf_path, title="ترتيب الأساتذة حسب تعقيد الشروط")
+    doc_title = (f"{school_name} — " if school_name else "") + "ترتيب الأساتذة حسب تعقيد الشروط"
+    doc = _new_doc(pdf_path, title=doc_title)
     doc.build(flow)
     if progress:
         progress(f"تم إنشاء: {pdf_path.name}")
@@ -919,13 +947,15 @@ def generate_fulfillment_report_pdf(data, out_dir, progress=None, warm_start=Non
             "في التقرير."
         )
 
+    school_name = _school_name_of(data)
     fulfillment_counts = scheduler.fulfillment_category_counts(fulfillment_rows)
-    flow = _build_fulfillment_report_flowables(fulfillment_rows, fulfillment_counts)
+    flow = _build_fulfillment_report_flowables(fulfillment_rows, fulfillment_counts, school_name=school_name)
     pdf_path = out_dir / "تقرير_نسبة_تحقق_رغبات_الأساتذة.pdf"
 
     if progress:
         progress("جاري توليد ملف PDF...")
-    doc = _new_doc(pdf_path, title="تقرير نسبة تحقق رغبات الأساتذة")
+    doc_title = (f"{school_name} — " if school_name else "") + "تقرير نسبة تحقق رغبات الأساتذة"
+    doc = _new_doc(pdf_path, title=doc_title)
     doc.build(flow)
     if progress:
         progress(f"تم إنشاء: {pdf_path.name}")

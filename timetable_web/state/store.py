@@ -64,6 +64,9 @@ class Store:
         scheduler.ensure_teacher_roster(data)
         for subj in data.get("subjects", []):
             scheduler.ensure_subject_constraints(subj)
+        # اسم المدرسة (يظهر في الشريط العلوي وفي كل تقارير PDF) — حقل
+        # اختياري أُضيف لاحقاً، فيُملأ فارغاً تلقائياً لأي ملف قديم لا يحويه.
+        data.setdefault("meta", {}).setdefault("school_name", "")
 
         self.data = data
         self.current_path = path

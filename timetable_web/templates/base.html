@@ -12,7 +12,11 @@
   <header class="app-bar">
     <div class="brand-block">
       <a class="brand" href="/">برنامج توزيع الأساتذة والحصص</a>
-      <span class="subtitle">إدارة الخطة الدراسية وتوليد الجداول والقوائم</span>
+      {% if user and not user.is_admin() and store is defined and store.data and store.data.meta.school_name %}
+        <span class="subtitle school-name-badge">🏫 {{ store.data.meta.school_name }}</span>
+      {% else %}
+        <span class="subtitle">إدارة الخطة الدراسية وتوليد الجداول والقوائم</span>
+      {% endif %}
     </div>
     <nav class="primary">
       {% if user and user.is_admin() %}
@@ -28,6 +32,15 @@
       {% endif %}
     </nav>
     <div class="user-block">
+      {% if user and not user.is_admin() and store is defined %}
+        <button class="small primary"
+                hx-post="/file/save" hx-target="#toast" hx-swap="innerHTML"
+                hx-on::after-request="document.getElementById('toast').classList.add('show'); setTimeout(()=>document.getElementById('toast').classList.remove('show'), 2500)"
+                {% if not store.current_path %}disabled{% endif %}
+                title="حفظ كل التعديلات الحالية على القرص">
+          💾 حفظ{% if store.dirty %} <span class="dirty-dot" title="تعديلات غير محفوظة">●</span>{% endif %}
+        </button>
+      {% endif %}
       {% if user %}
         <span class="user-chip {{ 'admin' if user.is_admin() else 'supervisor' }}">
           {% if user.is_admin() %}🔑 مدير{% else %}👤{% endif %} {{ user.username }}
@@ -46,6 +59,8 @@
     .user-chip.supervisor { background: #dcfce7; color: #166534; }
     .user-block .logout { color: var(--muted); }
     .user-block .logout:hover { color: var(--danger); }
+    .school-name-badge { font-weight: 600; color: var(--accent); }
+    .user-block .dirty-dot { color: var(--warn); font-size: 15px; line-height: 1; }
   </style>
 </body>
 </html>

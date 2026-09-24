@@ -21,6 +21,10 @@
             <span class="muted" style="font-size: 12px;">كلمة المرور (4 حروف على الأقل)</span>
             <input type="password" name="password" required minlength="4">
           </label>
+          <label style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px;">
+            <span class="muted" style="font-size: 12px;">اسم المدرسة (يظهر في الشريط العلوي وكل التقارير)</span>
+            <input type="text" name="school_name" placeholder="مثلاً: مدرسة النور الخاصة">
+          </label>
         </div>
         <div>
           <span class="muted" style="font-size: 12px;">أيام الدراسة لملف بيانات المشرف</span>
@@ -55,6 +59,7 @@
       <tr>
         <th>#</th>
         <th>المستخدم</th>
+        <th>اسم المدرسة</th>
         <th>الحالة</th>
         <th>ملف البيانات</th>
         <th>تاريخ الإنشاء</th>
@@ -66,6 +71,7 @@
       <tr>
         <td class="muted">{{ loop.index }}</td>
         <td><strong>{{ u.username }}</strong></td>
+        <td>{{ school_names.get(u.username) or "—" }}</td>
         <td>
           {% if u.active %}
             <span class="status-pill done">✓ مفعَّل</span>

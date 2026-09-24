@@ -48,6 +48,18 @@ def save() -> Response:
     return Response(f"تم الحفظ: {path.name}")
 
 
+@router.post("/school-name")
+def update_school_name(name: str = Form("")) -> Response:
+    """يُحدَّث اسم المدرسة (يظهر في الشريط العلوي وكل تقارير PDF). لا يحفظ
+    على القرص فوراً — كأي تعديل آخر، يحتاج زر "حفظ"."""
+    store = get_store()
+    if store.data is None:
+        raise HTTPException(400, "لا يوجد ملف محمَّل")
+    store.data.setdefault("meta", {})["school_name"] = name.strip()
+    store.mark_dirty()
+    return Response('<span class="ok-mark">✓ تم التحديث (لا تنسَ الحفظ)</span>')
+
+
 @router.post("/new")
 async def new_school(request: Request) -> RedirectResponse:
     import json
