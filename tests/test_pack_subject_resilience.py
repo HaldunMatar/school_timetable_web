@@ -9,18 +9,23 @@ from __future__ import annotations
 
 
 def _make_unassignable(client, store):
-    """يجعل مادة "الرياضيات" (subjects[0]) بحالة: أساتذتها كلهم مُسنَدون
-    إجبارياً بعد إزالة أحمد، بينما تبقى حصص صف ع2 بلا أستاذ يستلمها تلقائياً."""
-    r = client.post("/subjects/0/name/add", data={"name": "بشير"})
-    assert r.status_code == 200
-    r = client.post(
+    """مادة "الرياضيات" (subjects[0]) في tiny_data: صف ع1 له شعبة واحدة فقط
+    افتراضياً. نرفعها إلى 3 شعب، ثم نضيف أستاذين إضافيين (بشير من الوسط
+    المركزي + سامي جديد) ونُسنِد كلاً منهما إجبارياً لشعبة واحدة من ع1،
+    تاركين أحمد "حراً" يستلم تلقائياً كل ما تبقى (شعبة ع1 الثالثة + كل ع2).
+    إزالة أحمد بعد ذلك تترك بشير وسامي مُسنَدين، بلا أحد يستلم البقية."""
+    assert client.post("/sections/ع1", data={"count": "3"}).status_code == 200
+    assert client.post("/teachers/add", data={"name": "سامي"}).status_code == 200
+    assert client.post("/subjects/0/name/add", data={"name": "بشير"}).status_code == 200
+    assert client.post("/subjects/0/name/add", data={"name": "سامي"}).status_code == 200
+    assert client.post(
         "/subjects/0/manual/add",
         data={"teacher": "بشير", "track": "ع1", "section_csv": "1"},
-    )
-    assert r.status_code == 200
-    # الآن: أحمد حر (بلا إسناد إجباري)، بشير مُسنَد فقط لِـ ع1 شعبة 1.
-    # حصص ع2 شعبة 1 تُوزَّع تلقائياً على أحمد. إزالة أحمد تترك بشير الوحيد،
-    # وهو مُسنَد بالفعل، فتبقى حصص ع2 بلا مُستلِم.
+    ).status_code == 200
+    assert client.post(
+        "/subjects/0/manual/add",
+        data={"teacher": "سامي", "track": "ع1", "section_csv": "2"},
+    ).status_code == 200
     return client.post("/subjects/0/name/remove", data={"name": "أحمد"})
 
 
