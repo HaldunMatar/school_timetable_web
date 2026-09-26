@@ -51,6 +51,26 @@ def _cleanup_manual_assignments(data: dict, grade: str, new_count: int) -> list[
     return messages
 
 
+def _cleanup_merged_groups(data: dict, grade: str, new_count: int) -> list[str]:
+    """يمسح أي عملية دمج شعب أصبحت إحدى شعبتيها ملغاة. على عكس الإسناد
+    الإجباري، لا يوجد "تصفية جزئية" ممكنة هنا - دمج شعبتين يفقد معناه بالكامل
+    إن أُلغيت إحداهما، فتُحذف عملية الدمج كلها."""
+    messages: list[str] = []
+    for subj in data.get("subjects", []):
+        groups = subj.get("merged_groups", [])
+        remaining: list[dict] = []
+        for g in groups:
+            if g.get("track") != grade or all(s <= new_count for s in g.get("sections", [])):
+                remaining.append(g)
+                continue
+            messages.append(
+                f"أُلغي دمج الشعب {sorted(g.get('sections', []))} في {subj['name']} · {grade} "
+                f"للأستاذ {g.get('teacher')} — لأن إحدى الشعبتين أُلغيت"
+            )
+        subj["merged_groups"] = remaining
+    return messages
+
+
 @router.post("/{grade}", response_class=HTMLResponse)
 def update(grade: str, request: Request, count: int = Form(..., ge=0, le=99)) -> HTMLResponse:
     store = get_store()
@@ -65,6 +85,7 @@ def update(grade: str, request: Request, count: int = Form(..., ge=0, le=99)) ->
     cleanup_msgs: list[str] = []
     if count < old_count:
         cleanup_msgs = _cleanup_manual_assignments(store.data, grade, count)
+        cleanup_msgs += _cleanup_merged_groups(store.data, grade, count)
         for msg in cleanup_msgs:
             store.log(msg)
 

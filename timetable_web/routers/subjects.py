@@ -195,8 +195,9 @@ def remove_name(idx: int, request: Request, name: str = Form(...)) -> HTMLRespon
     if name not in names:
         raise HTTPException(404, "الاسم غير موجود في هذه المادة")
     names.remove(name)
-    # Also drop any manual assignments referencing this teacher in this subject
+    # Also drop any manual assignments / merged sections referencing this teacher
     subj["manual_assignments"] = [m for m in subj.get("manual_assignments", []) if m.get("teacher") != name]
+    subj["merged_groups"] = [g for g in subj.get("merged_groups", []) if g.get("teacher") != name]
     store.mark_dirty()
     store.log(f"أُزيل {name} من مادة {subj['name']}")
     return TEMPLATES.TemplateResponse(
@@ -255,6 +256,61 @@ def remove_manual(idx: int, mindex: int, request: Request) -> HTMLResponse:
     store.mark_dirty()
     return TEMPLATES.TemplateResponse(
         request, "partials/manual_list.html", _editor_ctx(request, idx)
+    )
+
+
+# --- merged sections (نفس الأستاذ، نفس الوقت - درس مشترك) ---
+
+@router.post("/{idx}/merge/add", response_class=HTMLResponse)
+def add_merge(
+    idx: int,
+    request: Request,
+    teacher: str = Form(...),
+    track: str = Form(...),
+    section_a: int = Form(...),
+    section_b: int = Form(...),
+) -> HTMLResponse:
+    store, data, subj = _subject(idx)
+    if teacher not in subj.get("names", []):
+        raise HTTPException(400, "الأستاذ ليس من أساتذة هذه المادة")
+    if track not in data["meta"]["grade_order"]:
+        raise HTTPException(400, "صف غير معروف")
+    if section_a == section_b:
+        raise HTTPException(400, "اختر شعبتين مختلفتين للدمج")
+    secs = sorted([section_a, section_b])
+    max_sec = data.get("sections", {}).get(track, 0)
+    for s in secs:
+        if s < 1 or s > max_sec:
+            raise HTTPException(400, f"شعبة {s} خارج نطاق صف {track} (1..{max_sec})")
+    existing = subj.setdefault("merged_groups", [])
+    for row in existing:
+        if row["track"] == track and set(row.get("sections", [])) & set(secs):
+            raise HTTPException(
+                400, f"إحدى الشعبتين {secs} مضمومة بالفعل في عملية دمج أخرى في {track}"
+            )
+    for row in subj.get("manual_assignments", []) or []:
+        if row.get("track") == track and set(row.get("sections", [])) & set(secs):
+            raise HTTPException(
+                400, f"إحدى الشعبتين {secs} لها إسناد إجباري منفصل بالفعل - أزله أولاً"
+            )
+    existing.append({"teacher": teacher, "track": track, "sections": secs})
+    store.mark_dirty()
+    store.log(f"دمج شعب: {teacher} ← {track} شعبتا {secs} في نفس الوقت")
+    return TEMPLATES.TemplateResponse(
+        request, "partials/merge_list.html", _editor_ctx(request, idx)
+    )
+
+
+@router.post("/{idx}/merge/{mindex}/delete", response_class=HTMLResponse)
+def remove_merge(idx: int, mindex: int, request: Request) -> HTMLResponse:
+    store, data, subj = _subject(idx)
+    groups = subj.setdefault("merged_groups", [])
+    if mindex < 0 or mindex >= len(groups):
+        raise HTTPException(404, "دمج غير موجود")
+    groups.pop(mindex)
+    store.mark_dirty()
+    return TEMPLATES.TemplateResponse(
+        request, "partials/merge_list.html", _editor_ctx(request, idx)
     )
 
 

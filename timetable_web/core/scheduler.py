@@ -740,6 +740,18 @@ def pack_subject(data, subject):
     bare exception here). Exempt: a subject with only one teacher total
     always keeps getting the remainder itself, since there is no
     alternative teacher to give it to.
+
+    merged_groups (see validate_merged_groups) act exactly like an extra,
+    implicit manual assignment pinning ONE named teacher onto BOTH sections
+    of the pair at once - no separate manual_assignments row is needed. The
+    higher-numbered section of the pair is additionally tagged
+    "merge_primary_section" pointing at its partner, so solve_timetable can
+    force their time slots to be identical later (a real joint lesson: same
+    teacher, same slots, in both sections' schedules). Its own atom keeps
+    its own "periods" count intact here (it still needs its own full weekly
+    quota scheduled) - only the LOAD/DISPLAY total below excludes it, since
+    those periods don't consume any additional time from the teacher's
+    week (they happen at the very same slots as the primary section's).
     """
     cols = data["meta"]["grade_order"]
     sections = data["sections"]
@@ -768,6 +780,24 @@ def pack_subject(data, subject):
         for sec in row.get("sections", []) or []:
             claimed[(track, sec)] = teacher
             pinned_names.add(teacher)
+
+    merge_shadow_of = {}  # (track, shadow_section) -> primary_section
+    for grp in subject.get("merged_groups", []) or []:
+        teacher = grp.get("teacher")
+        track = grp.get("track")
+        secs = sorted(set(grp.get("sections", []) or []))
+        if teacher not in names or len(secs) != 2:
+            continue
+        primary, shadow = secs
+        claimed[(track, primary)] = teacher
+        claimed[(track, shadow)] = teacher
+        pinned_names.add(teacher)
+        merge_shadow_of[(track, shadow)] = primary
+
+    for atom in atoms:
+        primary = merge_shadow_of.get((atom["track"], atom["section"]))
+        if primary is not None:
+            atom["merge_primary_section"] = primary
 
     name_idx = {name: i for i, name in enumerate(names)}
     teachers = [[] for _ in range(n)]
@@ -814,7 +844,14 @@ def pack_subject(data, subject):
             "subject": subject["name"],
             "name": name,
             "atoms": atoms_for_teacher,
-            "total": sum(a["periods"] for a in atoms_for_teacher),
+            # A merged pair's shadow atom occupies no EXTRA time of its own
+            # (see merge_shadow_of above) - excluded here so a teacher's
+            # displayed weekly load reflects actual occupied slots, not a
+            # double-count of the same joint lesson.
+            "total": sum(
+                a["periods"] for a in atoms_for_teacher
+                if "merge_primary_section" not in a
+            ),
         })
     return slots
 
@@ -902,6 +939,74 @@ def validate_manual_assignments(data):
                 )
 
 
+def validate_merged_groups(data):
+    """
+    Raise a clear Arabic error for any invalid "دمج شعبتين" (merge two
+    sections onto the same teacher, same time slots - a genuine joint
+    lesson) configuration, mirroring validate_manual_assignments above:
+    a friendly pre-flight check (Dashboard tab, and before generation)
+    instead of a bare exception surfacing later from pack_subject/
+    solve_timetable. A merge group acts like an implicit manual assignment
+    (see pack_subject), so it must not also collide with an explicit one.
+    """
+    cols = data["meta"]["grade_order"]
+    sections_count = data["sections"]
+    for subject in data["subjects"]:
+        groups = subject.get("merged_groups", []) or []
+        if not groups:
+            continue
+        manual_claimed = set()
+        for row in subject.get("manual_assignments", []) or []:
+            for sec in row.get("sections", []) or []:
+                manual_claimed.add((row.get("track"), sec))
+
+        claimed_by = {}
+        for grp in groups:
+            teacher = grp.get("teacher")
+            track = grp.get("track")
+            secs = grp.get("sections", []) or []
+            if teacher not in subject["names"]:
+                raise RuntimeError(
+                    f"دمج شعب غير صالح في مادة \"{subject['name']}\": الأستاذ \"{teacher}\" "
+                    f"ليس ضمن قائمة أساتذة هذه المادة."
+                )
+            if track not in cols:
+                raise RuntimeError(
+                    f"دمج شعب غير صالح في مادة \"{subject['name']}\": الصف \"{track}\" غير معروف."
+                )
+            if float(subject["periods"].get(track, 0) or 0) <= 0:
+                raise RuntimeError(
+                    f"دمج شعب غير صالح في مادة \"{subject['name']}\": لا توجد حصص لمادة "
+                    f"\"{subject['name']}\" في صف \"{track}\" أصلاً."
+                )
+            distinct_secs = sorted(set(secs))
+            if len(secs) != 2 or len(distinct_secs) != 2:
+                raise RuntimeError(
+                    f"دمج شعب غير صالح في مادة \"{subject['name']}\": يجب اختيار شعبتين "
+                    f"مختلفتين بالضبط للدمج."
+                )
+            max_section = int(sections_count.get(track, 0) or 0)
+            for sec in distinct_secs:
+                if not (1 <= sec <= max_section):
+                    raise RuntimeError(
+                        f"دمج شعب غير صالح في مادة \"{subject['name']}\": الشعبة {sec} غير "
+                        f"موجودة في صف \"{track}\" (المتاح حالياً: من 1 إلى {max_section})."
+                    )
+                key = (track, sec)
+                if key in claimed_by:
+                    raise RuntimeError(
+                        f"دمج شعب متعارض في مادة \"{subject['name']}\": الشعبة {sec} من صف "
+                        f"\"{track}\" مضمومة في أكثر من عملية دمج واحدة."
+                    )
+                if key in manual_claimed:
+                    raise RuntimeError(
+                        f"دمج شعب متعارض في مادة \"{subject['name']}\": الشعبة {sec} من صف "
+                        f"\"{track}\" لها أيضاً إسناد إجباري منفصل - أزل الإسناد الإجباري "
+                        f"عنها أولاً، أو عدّل عملية الدمج."
+                    )
+                claimed_by[key] = teacher
+
+
 def build_all_slots(data):
     """Pack every subject; return the flat list of (subject, teacher, atoms)."""
     slots = []
@@ -915,14 +1020,23 @@ def requirements_from_slots(slots):
     requirements = []
     for slot in slots:
         by_ts = {}
+        merge_primary = {}
         for a in slot["atoms"]:
             key = (a["track"], a["section"])
             by_ts[key] = by_ts.get(key, 0) + a["periods"]
+            if "merge_primary_section" in a:
+                merge_primary[key] = a["merge_primary_section"]
         for (track, sec), periods in by_ts.items():
-            requirements.append({
+            req = {
                 "teacher": slot["name"], "subject": slot["subject"],
                 "track": track, "section": sec, "periods": int(round(periods)),
-            })
+            }
+            if (track, sec) in merge_primary:
+                # A "شعبة مدمجة": solve_timetable forces this requirement's
+                # time slots to be identical to its primary partner's (see
+                # pack_subject's merge_shadow_of), a genuine joint lesson.
+                req["merge_primary_section"] = merge_primary[(track, sec)]
+            requirements.append(req)
     return requirements
 
 
@@ -1024,6 +1138,7 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
 
     validate_teacher_constraints(data)
     validate_manual_assignments(data)
+    validate_merged_groups(data)
     ensure_min_teachers(data)
 
     # Grades whose entered subjects don't yet sum to a full week are NOT
@@ -1045,6 +1160,35 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     slots = build_all_slots(data)
     requirements = requirements_from_slots(slots)
 
+    # requirements_from_slots() guarantees at most ONE requirement per
+    # (subject, track, section) triple (pack_subject hands each whole
+    # (track, section) atom to exactly one teacher, never splitting it), so
+    # this lookup is unambiguous. Built once here and reused below both for
+    # merge-linking and for the subject-level hard constraints.
+    requirement_by_subject_section = {
+        (r["subject"], r["track"], r["section"]): i for i, r in enumerate(requirements)
+    }
+
+    # "دمج شعبتين": a shadow requirement's time slots must be forced
+    # identical to its primary partner's (see pack_subject/
+    # requirements_from_slots) - a genuine joint lesson, same teacher, same
+    # slots, in both sections. shadow_req_idxs is excluded from per-teacher
+    # load/exclusivity below (its occupancy is already fully accounted for
+    # via its primary partner), everywhere else it behaves like any other
+    # requirement (own periods-count constraint, own section exclusivity,
+    # own subject-level hard caps).
+    merge_links = []  # (primary_i, shadow_j)
+    shadow_req_idxs = set()
+    for j, r in enumerate(requirements):
+        primary_sec = r.get("merge_primary_section")
+        if primary_sec is None:
+            continue
+        i = requirement_by_subject_section.get((r["subject"], r["track"], primary_sec))
+        if i is None:
+            continue
+        merge_links.append((i, j))
+        shadow_req_idxs.add(j)
+
     if progress:
         progress(f"عدد المتطلبات: {len(requirements)} — إجمالي الحصص: "
                   f"{sum(r['periods'] for r in requirements)}")
@@ -1055,7 +1199,9 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     # preferences (see teacher_capacity) rather than hard slot reservations,
     # so they can never make generation impossible on their own.
     per_teacher_total = {}
-    for r in requirements:
+    for i, r in enumerate(requirements):
+        if i in shadow_req_idxs:
+            continue
         per_teacher_total[r["teacher"]] = per_teacher_total.get(r["teacher"], 0) + r["periods"]
     overloaded = {}
     for t, p in per_teacher_total.items():
@@ -1099,6 +1245,13 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     for i, r in enumerate(requirements):
         model.Add(sum(x[i, s] for s in range(nslots)) == r["periods"])
 
+    # دمج شعبتين: force the shadow requirement's slots to exactly mirror its
+    # primary partner's - same teacher (already guaranteed by pack_subject),
+    # now also same time, in every slot.
+    for i, j in merge_links:
+        for s in range(nslots):
+            model.Add(x[i, s] == x[j, s])
+
     by_section = {}
     for i, r in enumerate(requirements):
         by_section.setdefault((r["track"], r["section"]), []).append(i)
@@ -1106,8 +1259,18 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         for s in range(nslots):
             model.Add(sum(x[i, s] for i in idxs) <= 1)
 
+    # A shadow requirement is excluded here - it is not a separate teaching
+    # slot, only the mirror image of its primary partner (linked above), so
+    # counting both would wrongly forbid the teacher from occupying the
+    # merged pair's own shared slot (x[i,s] == x[j,s] == 1 together is
+    # exactly the point). by_teacher is also reused below (busy[d, p]) for
+    # every per-teacher soft preference, so this single exclusion point
+    # keeps a merged teacher's empty_periods/day_off/gap-window accounting
+    # correct too - each merged slot counted once, not twice.
     by_teacher = {}
     for i, r in enumerate(requirements):
+        if i in shadow_req_idxs:
+            continue
         by_teacher.setdefault(r["teacher"], []).append(i)
     for teacher, idxs in by_teacher.items():
         for s in range(nslots):
@@ -1121,13 +1284,6 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     # (INFEASIBLE) rather than silently ignoring one if a subject's weekly
     # period count for a section makes it impossible to honor.
     #
-    # requirements_from_slots() guarantees at most ONE requirement per
-    # (subject, track, section) triple (pack_subject hands each whole
-    # (track, section) atom to exactly one teacher, never splitting it), so
-    # this lookup is unambiguous.
-    requirement_by_subject_section = {
-        (r["subject"], r["track"], r["section"]): i for i, r in enumerate(requirements)
-    }
     grade_order = data["meta"]["grade_order"]
     sections_count = data["sections"]
     for subject in data["subjects"]:

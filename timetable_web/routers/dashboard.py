@@ -66,6 +66,10 @@ def _compute(data: dict) -> dict:
         scheduler.validate_manual_assignments(data)
     except Exception as exc:
         warnings.append(f"إسناد إجباري غير صالح: {exc}")
+    try:
+        scheduler.validate_merged_groups(data)
+    except Exception as exc:
+        warnings.append(f"دمج شعب غير صالح: {exc}")
 
     # roster stats
     try:
