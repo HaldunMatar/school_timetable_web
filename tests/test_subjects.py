@@ -62,6 +62,16 @@ def test_add_name_duplicate_fails(client):
     assert r.status_code == 400
 
 
+def test_add_name_refreshes_manual_and_merge_teacher_dropdowns(client):
+    """انحدار: /name/add كان يُعيد رسم بطاقة الأساتذة فقط، فتبقى قائمتا
+    "الأستاذ" في نموذجَي الإسناد الإجباري والدمج (المبنيتان من نفس
+    subj.names) بلا الاسم المُضاف حتى تحديث كامل للصفحة - فارغتين بالكامل
+    لو كان هذا أول أستاذ للمادة."""
+    r = client.post("/subjects/0/name/add", data={"name": "بشير"})
+    assert r.status_code == 200
+    assert r.text.count('value="بشير"') >= 2
+
+
 def test_remove_name(client, store):
     r = client.post("/subjects/0/name/remove", data={"name": "أحمد"})
     assert r.status_code == 200

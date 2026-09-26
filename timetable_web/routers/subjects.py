@@ -183,8 +183,13 @@ def add_name(idx: int, request: Request, name: str = Form(...)) -> HTMLResponse:
     subj.setdefault("names", []).append(name)
     store.mark_dirty()
     store.log(f"أُضيف {name} إلى مادة {subj['name']}")
+    # يُعاد رسم المحرِّر كاملاً (لا فقط بطاقة الأساتذة) لأن قائمتي "إسناد
+    # إجباري" و"دمج شعبتين" أدناه تبنيان خيارات <select> "الأستاذ" الخاصة
+    # بهما من نفس subj.names عند الرسم، فتبقيان بلا هذا الاسم الجديد (بل
+    # فارغتين بالكامل إن كان هذا أول أستاذ للمادة) حتى تحديث كامل للصفحة
+    # لو اقتصر الرد على بطاقة الأساتذة وحدها.
     return TEMPLATES.TemplateResponse(
-        request, "partials/subject_names.html", _editor_ctx(request, idx)
+        request, "partials/subject_editor.html", _editor_ctx(request, idx)
     )
 
 
