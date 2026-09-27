@@ -81,6 +81,40 @@
         selectEl.appendChild(o);
       }
     };
+
+    // مساعد مشترك آخر: نفس فكرة __fillSectionOptions أعلاه، لكن بمربعات
+    // اختيار (checkboxes) بدل <select multiple> - يُستخدم لحقل "الشعب" في
+    // الإسناد الإجباري (إضافة وتعديل)، حيث اختيار عدة شعب بالنقر المباشر
+    // أوضح من قائمة تحتاج ctrl/cmd للتحديد المتعدد.
+    window.__fillSectionCheckboxes = function (containerEl, max, initialKeep) {
+      if (!containerEl) return;
+      var keep = initialKeep || Array.prototype.map.call(
+        containerEl.querySelectorAll("input[type=checkbox]:checked"),
+        function (el) { return el.value; }
+      );
+      containerEl.innerHTML = "";
+      for (var i = 1; i <= max; i++) {
+        var label = document.createElement("label");
+        label.className = "pill-checkbox";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.name = "sections";
+        cb.value = String(i);
+        if (keep.indexOf(String(i)) !== -1) cb.checked = true;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(String(i)));
+        containerEl.appendChild(label);
+      }
+    };
   </script>
+
+  <style>
+    .pill-checkbox {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 999px; padding: 3px 10px; font-size: 13px; cursor: pointer;
+    }
+    .pill-checkbox input { margin: 0; }
+  </style>
 </body>
 </html>

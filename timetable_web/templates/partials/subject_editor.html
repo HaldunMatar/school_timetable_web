@@ -30,9 +30,14 @@
       {% for g in grade_order %}
         <label>
           <span class="muted">{{ grade_labels.get(g, g) }} <small>({{ sections.get(g, 0) }} شعبة)</small></span>
-          <input type="number" name="count" value="{{ subj.periods.get(g, 0) }}" min="0" max="40" step="0.5"
-                 hx-post="/subjects/{{ idx }}/period/{{ g }}" hx-trigger="change"
-                 hx-target="#periods-total" hx-swap="innerHTML">
+          <select name="count"
+                  hx-post="/subjects/{{ idx }}/period/{{ g }}" hx-trigger="change"
+                  hx-target="#periods-total" hx-swap="innerHTML">
+            {% set current = subj.periods.get(g, 0) %}
+            {% for i in range(0, 11) %}
+              <option value="{{ i }}" {% if current == i %}selected{% endif %}>{{ i }}</option>
+            {% endfor %}
+          </select>
         </label>
       {% endfor %}
     </div>
@@ -55,28 +60,34 @@
     </p>
     <form hx-post="/subjects/{{ idx }}/manual/add" hx-target="#manual-list" hx-swap="outerHTML"
           hx-on::after-request="this.reset(); this.querySelector('[name=track]').dispatchEvent(new Event('change'))"
-          class="row" style="gap: 8px; flex-wrap: wrap;">
-      <label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px;">
-        <span class="muted" style="font-size: 12px;">الأستاذ</span>
-        <select name="teacher" required>
-          <option value="">—</option>
-          {% for n in subj.names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
-        </select>
-      </label>
-      <label style="flex: 0 0 160px; display: flex; flex-direction: column; gap: 4px;">
-        <span class="muted" style="font-size: 12px;">الصف</span>
-        <select name="track" required>
-          <option value="">—</option>
-          {% for g in grade_order %}
-            <option value="{{ g }}" data-max="{{ sections.get(g, 0) }}">{{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label style="flex: 1 1 160px; display: flex; flex-direction: column; gap: 4px;">
-        <span class="muted" style="font-size: 12px;">الشعب (اختر واحدة أو أكثر)</span>
-        <select name="sections" multiple size="4" required></select>
-      </label>
-      <div style="align-self: end;">
+          class="stack" style="gap: 8px;">
+      <div class="row" style="gap: 8px; flex-wrap: wrap;">
+        <label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px;">
+          <span class="muted" style="font-size: 12px;">الأستاذ</span>
+          <select name="teacher" required>
+            <option value="">—</option>
+            {% for n in subj.names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+          </select>
+        </label>
+        <label style="flex: 0 0 160px; display: flex; flex-direction: column; gap: 4px;">
+          <span class="muted" style="font-size: 12px;">الصف</span>
+          <select name="track" required>
+            <option value="">—</option>
+            {% for g in grade_order %}
+              <option value="{{ g }}" data-max="{{ sections.get(g, 0) }}">{{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div>
+        <div class="row" style="gap: 8px; align-items: center; margin-bottom: 4px;">
+          <span class="muted" style="font-size: 12px;">الشعب (اختر واحدة أو أكثر)</span>
+          <button type="button" class="small" data-sections-select-all>تحديد الكل</button>
+          <button type="button" class="small" data-sections-select-none>إلغاء التحديد</button>
+        </div>
+        <div data-sections-checkboxes class="row" style="gap: 6px; flex-wrap: wrap; min-height: 30px;"></div>
+      </div>
+      <div>
         <button type="submit" class="primary">+ إضافة إسناد</button>
       </div>
     </form>
@@ -84,13 +95,19 @@
       (function () {
         var form = document.currentScript.previousElementSibling;
         var trackSel = form.querySelector('[name="track"]');
-        var sectionsSel = form.querySelector('[name="sections"]');
+        var container = form.querySelector('[data-sections-checkboxes]');
         function sync() {
           var opt = trackSel.selectedOptions[0];
           var max = opt ? parseInt(opt.getAttribute("data-max") || "0", 10) : 0;
-          window.__fillSectionOptions(sectionsSel, max);
+          window.__fillSectionCheckboxes(container, max);
         }
         trackSel.addEventListener("change", sync);
+        form.querySelector('[data-sections-select-all]').addEventListener("click", function () {
+          container.querySelectorAll("input[type=checkbox]").forEach(function (cb) { cb.checked = true; });
+        });
+        form.querySelector('[data-sections-select-none]').addEventListener("click", function () {
+          container.querySelectorAll("input[type=checkbox]").forEach(function (cb) { cb.checked = false; });
+        });
         sync();
       })();
     </script>
