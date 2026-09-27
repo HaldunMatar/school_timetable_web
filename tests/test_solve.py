@@ -21,7 +21,7 @@ def test_solve_page_shows_time_limit_select(client):
     r = client.get("/solve")
     assert r.status_code == 200
     assert 'name="max_time"' in r.text
-    for seconds in ("60", "180", "300", "600", "900"):
+    for seconds in ("60", "180", "300", "600", "900", "1800", "2700", "3600"):
         assert f'value="{seconds}"' in r.text
 
 
@@ -32,6 +32,9 @@ def test_clean_time_limit_allowlist():
     assert _clean_time_limit(60) == 60
     assert _clean_time_limit(300) == 300
     assert _clean_time_limit(900) == 900
+    assert _clean_time_limit(1800) == 1800
+    assert _clean_time_limit(2700) == 2700
+    assert _clean_time_limit(3600) == 3600
     assert _clean_time_limit(999999) == DEFAULT_TIME_LIMIT
     assert _clean_time_limit(-5) == DEFAULT_TIME_LIMIT
 
