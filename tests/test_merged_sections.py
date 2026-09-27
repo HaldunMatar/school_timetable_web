@@ -214,7 +214,7 @@ def test_add_merge_rejects_teacher_not_in_subject(client):
 
 def test_add_merge_rejects_duplicate_section_claim(client):
     _bump_ع1_to_2_sections(client)
-    client.post("/subjects/0/manual/add", data={"teacher": "أحمد", "track": "ع1", "section_csv": "1"})
+    client.post("/subjects/0/manual/add", data={"teacher": "أحمد", "track": "ع1", "sections": ["1"]})
     r = client.post(
         "/subjects/0/merge/add",
         data={"teacher": "أحمد", "track": "ع1", "section_a": "1", "section_b": "2"},
@@ -266,3 +266,77 @@ def test_dashboard_warns_on_invalid_merged_group(client, store):
     r = client.get("/dashboard")
     assert r.status_code == 200
     assert "دمج شعب غير صالح" in r.text
+
+
+# ---------- تعديل سطري لدمج قائم (بدل حذف وإعادة إضافة) ----------
+
+def _bump_ع1_to_3_sections(client):
+    r = client.post("/sections/ع1", data={"count": "3"})
+    assert r.status_code == 200
+
+
+def test_edit_merge_form_prefills_current_values(client):
+    _bump_ع1_to_2_sections(client)
+    client.post(
+        "/subjects/0/merge/add",
+        data={"teacher": "أحمد", "track": "ع1", "section_a": "1", "section_b": "2"},
+    )
+    r = client.get("/subjects/0/merge/0/edit")
+    assert r.status_code == 200
+    assert 'value="أحمد" selected' in r.text
+
+
+def test_update_merge_changes_sections(client, store):
+    _bump_ع1_to_3_sections(client)
+    client.post(
+        "/subjects/0/merge/add",
+        data={"teacher": "أحمد", "track": "ع1", "section_a": "1", "section_b": "2"},
+    )
+    r = client.post(
+        "/subjects/0/merge/0/update",
+        data={"teacher": "أحمد", "track": "ع1", "section_a": "2", "section_b": "3"},
+    )
+    assert r.status_code == 200, r.text
+    row = store.data["subjects"][0]["merged_groups"][0]
+    assert row["sections"] == [2, 3]
+
+
+def test_update_merge_does_not_conflict_with_its_own_previous_value(client):
+    """تحديث دمج بدون تغيير الشعب فعلياً يجب ألا يُرفض كتعارض مع نفسه."""
+    _bump_ع1_to_2_sections(client)
+    client.post(
+        "/subjects/0/merge/add",
+        data={"teacher": "أحمد", "track": "ع1", "section_a": "1", "section_b": "2"},
+    )
+    r = client.post(
+        "/subjects/0/merge/0/update",
+        data={"teacher": "أحمد", "track": "ع1", "section_a": "1", "section_b": "2"},
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_update_merge_still_rejects_conflict_with_other_group(client):
+    r = client.post("/sections/ع1", data={"count": "4"})
+    assert r.status_code == 200
+    client.post("/teachers/add", data={"name": "سامي"})
+    client.post("/subjects/0/name/add", data={"name": "سامي"})
+    client.post(
+        "/subjects/0/merge/add",
+        data={"teacher": "أحمد", "track": "ع1", "section_a": "1", "section_b": "2"},
+    )
+    client.post(
+        "/subjects/0/merge/add",
+        data={"teacher": "سامي", "track": "ع1", "section_a": "3", "section_b": "4"},
+    )
+    # محاولة تعديل دمج سامي (index 1) ليضم الشعبة 1 - المضمومة بالفعل لأحمد
+    r = client.post(
+        "/subjects/0/merge/1/update",
+        data={"teacher": "سامي", "track": "ع1", "section_a": "1", "section_b": "4"},
+    )
+    assert r.status_code == 400
+
+
+def test_merge_list_partial_for_cancel_button(client):
+    r = client.get("/subjects/0/merge-list")
+    assert r.status_code == 200
+    assert 'id="merge-list"' in r.text

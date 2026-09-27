@@ -4,11 +4,14 @@
       <thead><tr><th>الأستاذ</th><th>الصف</th><th>الشعبتان المدمجتان</th><th></th></tr></thead>
       <tbody>
         {% for m in subj.merged_groups %}
-          <tr>
+          <tr id="merge-row-{{ loop.index0 }}">
             <td>{{ m.teacher }}</td>
             <td>{{ grade_labels.get(m.track, m.track) }}</td>
             <td>{% for s in m.sections %}<span class="pill">{{ s }}</span>{% endfor %}</td>
-            <td>
+            <td class="row" style="gap: 4px;">
+              <button class="small"
+                      hx-get="/subjects/{{ idx }}/merge/{{ loop.index0 }}/edit"
+                      hx-target="#merge-row-{{ loop.index0 }}" hx-swap="outerHTML">✏️</button>
               <button class="danger small"
                       hx-post="/subjects/{{ idx }}/merge/{{ loop.index0 }}/delete"
                       hx-target="#merge-list" hx-swap="outerHTML">🗑</button>

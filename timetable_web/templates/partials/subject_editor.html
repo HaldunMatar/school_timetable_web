@@ -54,7 +54,7 @@
       أسند شعبة أو أكثر من صف معيّن لأستاذ من أساتذة هذه المادة. أي أستاذ يحصل على إسناد إجباري واحد يُستثنى من التوزيع التلقائي لبقية حصص المادة.
     </p>
     <form hx-post="/subjects/{{ idx }}/manual/add" hx-target="#manual-list" hx-swap="outerHTML"
-          hx-on::after-request="this.reset()"
+          hx-on::after-request="this.reset(); this.querySelector('[name=track]').dispatchEvent(new Event('change'))"
           class="row" style="gap: 8px; flex-wrap: wrap;">
       <label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px;">
         <span class="muted" style="font-size: 12px;">الأستاذ</span>
@@ -63,23 +63,37 @@
           {% for n in subj.names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
         </select>
       </label>
-      <label style="flex: 0 0 140px; display: flex; flex-direction: column; gap: 4px;">
+      <label style="flex: 0 0 160px; display: flex; flex-direction: column; gap: 4px;">
         <span class="muted" style="font-size: 12px;">الصف</span>
         <select name="track" required>
           <option value="">—</option>
           {% for g in grade_order %}
-            <option value="{{ g }}">{{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)</option>
+            <option value="{{ g }}" data-max="{{ sections.get(g, 0) }}">{{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)</option>
           {% endfor %}
         </select>
       </label>
-      <label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px;">
-        <span class="muted" style="font-size: 12px;">أرقام الشعب (مثلاً: 1,2,3)</span>
-        <input type="text" name="section_csv" placeholder="1,2" required>
+      <label style="flex: 1 1 160px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">الشعب (اختر واحدة أو أكثر)</span>
+        <select name="sections" multiple size="4" required></select>
       </label>
       <div style="align-self: end;">
         <button type="submit" class="primary">+ إضافة إسناد</button>
       </div>
     </form>
+    <script>
+      (function () {
+        var form = document.currentScript.previousElementSibling;
+        var trackSel = form.querySelector('[name="track"]');
+        var sectionsSel = form.querySelector('[name="sections"]');
+        function sync() {
+          var opt = trackSel.selectedOptions[0];
+          var max = opt ? parseInt(opt.getAttribute("data-max") || "0", 10) : 0;
+          window.__fillSectionOptions(sectionsSel, max);
+        }
+        trackSel.addEventListener("change", sync);
+        sync();
+      })();
+    </script>
     {% include "partials/manual_list.html" %}
   </div>
 
@@ -92,7 +106,7 @@
       على أي شعبة لم تُدمَج.
     </p>
     <form hx-post="/subjects/{{ idx }}/merge/add" hx-target="#merge-list" hx-swap="outerHTML"
-          hx-on::after-request="this.reset()"
+          hx-on::after-request="this.reset(); this.querySelector('[name=track]').dispatchEvent(new Event('change'))"
           class="row" style="gap: 8px; flex-wrap: wrap;">
       <label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px;">
         <span class="muted" style="font-size: 12px;">الأستاذ</span>
@@ -101,27 +115,43 @@
           {% for n in subj.names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
         </select>
       </label>
-      <label style="flex: 0 0 140px; display: flex; flex-direction: column; gap: 4px;">
+      <label style="flex: 0 0 160px; display: flex; flex-direction: column; gap: 4px;">
         <span class="muted" style="font-size: 12px;">الصف</span>
         <select name="track" required>
           <option value="">—</option>
           {% for g in grade_order %}
-            <option value="{{ g }}">{{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)</option>
+            <option value="{{ g }}" data-max="{{ sections.get(g, 0) }}">{{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)</option>
           {% endfor %}
         </select>
       </label>
       <label style="flex: 0 0 110px; display: flex; flex-direction: column; gap: 4px;">
         <span class="muted" style="font-size: 12px;">الشعبة الأولى</span>
-        <input type="number" name="section_a" min="1" max="99" required>
+        <select name="section_a" required></select>
       </label>
       <label style="flex: 0 0 110px; display: flex; flex-direction: column; gap: 4px;">
         <span class="muted" style="font-size: 12px;">الشعبة الثانية</span>
-        <input type="number" name="section_b" min="1" max="99" required>
+        <select name="section_b" required></select>
       </label>
       <div style="align-self: end;">
         <button type="submit" class="primary">+ دمج شعبتين</button>
       </div>
     </form>
+    <script>
+      (function () {
+        var form = document.currentScript.previousElementSibling;
+        var trackSel = form.querySelector('[name="track"]');
+        var aSel = form.querySelector('[name="section_a"]');
+        var bSel = form.querySelector('[name="section_b"]');
+        function sync() {
+          var opt = trackSel.selectedOptions[0];
+          var max = opt ? parseInt(opt.getAttribute("data-max") || "0", 10) : 0;
+          window.__fillSectionOptions(aSel, max);
+          window.__fillSectionOptions(bSel, max);
+        }
+        trackSel.addEventListener("change", sync);
+        sync();
+      })();
+    </script>
     {% include "partials/merge_list.html" %}
   </div>
 

@@ -1,0 +1,54 @@
+<tr id="merge-row-{{ mindex }}">
+  <td colspan="4">
+    <form hx-post="/subjects/{{ idx }}/merge/{{ mindex }}/update" hx-target="#merge-list" hx-swap="outerHTML"
+          class="row" style="gap: 8px; flex-wrap: wrap; align-items: end;">
+      <label style="flex: 1 1 160px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">الأستاذ</span>
+        <select name="teacher" required>
+          {% for n in subj.names %}
+            <option value="{{ n }}" {% if n == row.teacher %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="flex: 0 0 160px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">الصف</span>
+        <select name="track" required>
+          {% for g in grade_order %}
+            <option value="{{ g }}" data-max="{{ sections.get(g, 0) }}" {% if g == row.track %}selected{% endif %}>
+              {{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="flex: 0 0 110px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">الشعبة الأولى</span>
+        <select name="section_a" required></select>
+      </label>
+      <label style="flex: 0 0 110px; display: flex; flex-direction: column; gap: 4px;">
+        <span class="muted" style="font-size: 12px;">الشعبة الثانية</span>
+        <select name="section_b" required></select>
+      </label>
+      <button type="submit" class="primary small">💾 حفظ</button>
+      <button type="button" class="small"
+              hx-get="/subjects/{{ idx }}/merge-list" hx-target="#merge-list" hx-swap="outerHTML">إلغاء</button>
+    </form>
+    <script>
+      (function () {
+        var form = document.currentScript.previousElementSibling;
+        var trackSel = form.querySelector('[name="track"]');
+        var aSel = form.querySelector('[name="section_a"]');
+        var bSel = form.querySelector('[name="section_b"]');
+        var initialA = ["{{ row.sections[0] }}"];
+        var initialB = ["{{ row.sections[1] }}"];
+        function sync(useInitial) {
+          var opt = trackSel.selectedOptions[0];
+          var max = opt ? parseInt(opt.getAttribute("data-max") || "0", 10) : 0;
+          window.__fillSectionOptions(aSel, max, useInitial ? initialA : null);
+          window.__fillSectionOptions(bSel, max, useInitial ? initialB : null);
+        }
+        trackSel.addEventListener("change", function () { sync(false); });
+        sync(true);
+      })();
+    </script>
+  </td>
+</tr>

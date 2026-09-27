@@ -20,11 +20,11 @@ def _make_unassignable(client, store):
     assert client.post("/subjects/0/name/add", data={"name": "سامي"}).status_code == 200
     assert client.post(
         "/subjects/0/manual/add",
-        data={"teacher": "بشير", "track": "ع1", "section_csv": "1"},
+        data={"teacher": "بشير", "track": "ع1", "sections": ["1"]},
     ).status_code == 200
     assert client.post(
         "/subjects/0/manual/add",
-        data={"teacher": "سامي", "track": "ع1", "section_csv": "2"},
+        data={"teacher": "سامي", "track": "ع1", "sections": ["2"]},
     ).status_code == 200
     return client.post("/subjects/0/name/remove", data={"name": "أحمد"})
 

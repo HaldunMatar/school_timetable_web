@@ -62,5 +62,25 @@
     .school-name-badge { font-weight: 600; color: var(--accent); }
     .user-block .dirty-dot { color: var(--warn); font-size: 15px; line-height: 1; }
   </style>
+
+  <script>
+    // مساعد مشترك: يملأ <select> بأرقام الشعب 1..max بناءً على الصف
+    // المختار، حافظاً على أي قيمة مختارة مسبقاً ما تزال ضمن النطاق الجديد
+    // (مفيد لصفوف التعديل السطري). يُستدعى من نصوص صغيرة مضمّنة داخل كل
+    // نموذج (إسناد إجباري / دمج شعبتين، إضافة وتعديل على حد سواء) - انظر
+    // subject_editor.html وmanual_edit_row.html/merge_edit_row.html.
+    window.__fillSectionOptions = function (selectEl, max, initialKeep) {
+      if (!selectEl) return;
+      var keep = initialKeep || Array.prototype.map.call(selectEl.selectedOptions, function (o) { return o.value; });
+      selectEl.innerHTML = "";
+      for (var i = 1; i <= max; i++) {
+        var o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = String(i);
+        if (keep.indexOf(String(i)) !== -1) o.selected = true;
+        selectEl.appendChild(o);
+      }
+    };
+  </script>
 </body>
 </html>

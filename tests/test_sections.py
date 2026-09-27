@@ -27,7 +27,7 @@ def test_reducing_sections_prunes_manual_assignments(client, store):
     client.post("/sections/ع1", data={"count": "3"})
     client.post(
         "/subjects/0/manual/add",
-        data={"teacher": "أحمد", "track": "ع1", "section_csv": "2,3"},
+        data={"teacher": "أحمد", "track": "ع1", "sections": ["2","3"]},
     )
     assert store.data["subjects"][0]["manual_assignments"][0]["sections"] == [2, 3]
 
@@ -46,7 +46,7 @@ def test_reducing_sections_partial_prune(client, store):
     client.post("/sections/ع1", data={"count": "3"})
     client.post(
         "/subjects/0/manual/add",
-        data={"teacher": "أحمد", "track": "ع1", "section_csv": "1,2,3"},
+        data={"teacher": "أحمد", "track": "ع1", "sections": ["1","2","3"]},
     )
 
     # نُقلّص إلى 2 → الشعبة 3 تُحذف فقط، الإسناد يبقى مع [1, 2]
@@ -63,9 +63,9 @@ def test_setting_sections_to_zero_removes_all_assignments_for_grade(client, stor
     client.post("/sections/ع1", data={"count": "3"})
     client.post("/sections/ع2", data={"count": "2"})
     client.post("/subjects/0/manual/add",
-                data={"teacher": "أحمد", "track": "ع1", "section_csv": "1,2"})
+                data={"teacher": "أحمد", "track": "ع1", "sections": ["1","2"]})
     client.post("/subjects/0/manual/add",
-                data={"teacher": "أحمد", "track": "ع2", "section_csv": "1"})
+                data={"teacher": "أحمد", "track": "ع2", "sections": ["1"]})
     assert len(store.data["subjects"][0]["manual_assignments"]) == 2
 
     # نلغي ع1 كلياً
@@ -82,7 +82,7 @@ def test_setting_sections_to_zero_removes_all_assignments_for_grade(client, stor
 def test_increasing_sections_never_touches_assignments(client, store):
     client.post("/sections/ع1", data={"count": "2"})
     client.post("/subjects/0/manual/add",
-                data={"teacher": "أحمد", "track": "ع1", "section_csv": "1,2"})
+                data={"teacher": "أحمد", "track": "ع1", "sections": ["1","2"]})
     assignments_before = [dict(m) for m in store.data["subjects"][0]["manual_assignments"]]
 
     # زيادة إلى 5 — لا تنظيف
@@ -96,7 +96,7 @@ def test_increasing_sections_never_touches_assignments(client, store):
 def test_cleanup_logged(client, store):
     client.post("/sections/ع1", data={"count": "3"})
     client.post("/subjects/0/manual/add",
-                data={"teacher": "أحمد", "track": "ع1", "section_csv": "2,3"})
+                data={"teacher": "أحمد", "track": "ع1", "sections": ["2","3"]})
     log_before = len(store.log_entries)
 
     client.post("/sections/ع1", data={"count": "1"})

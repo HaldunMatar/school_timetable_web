@@ -212,40 +212,89 @@ def remove_name(idx: int, request: Request, name: str = Form(...)) -> HTMLRespon
 
 # --- manual assignments ---
 
+def _validate_manual_row(data, subj, teacher, track, secs, exclude_index=None):
+    if teacher not in subj.get("names", []):
+        raise HTTPException(400, "الأستاذ ليس من أساتذة هذه المادة")
+    if track not in data["meta"]["grade_order"]:
+        raise HTTPException(400, "صف غير معروف")
+    if not secs:
+        raise HTTPException(400, "اختر شعبة واحدة على الأقل")
+    max_sec = data.get("sections", {}).get(track, 0)
+    for s in secs:
+        if s < 1 or s > max_sec:
+            raise HTTPException(400, f"شعبة {s} خارج نطاق صف {track} (1..{max_sec})")
+    # Prevent same (track, section) pinned to two teachers
+    existing = subj.get("manual_assignments", []) or []
+    for i, row in enumerate(existing):
+        if exclude_index is not None and i == exclude_index:
+            continue
+        if row["track"] == track:
+            for s in row.get("sections", []):
+                if s in secs and row["teacher"] != teacher:
+                    raise HTTPException(400,
+                        f"شعبة {s} في {track} مُسنَدة بالفعل للأستاذ {row['teacher']}")
+
+
 @router.post("/{idx}/manual/add", response_class=HTMLResponse)
 def add_manual(
     idx: int,
     request: Request,
     teacher: str = Form(...),
     track: str = Form(...),
-    section_csv: str = Form(...),
+    sections: list[int] = Form(...),
 ) -> HTMLResponse:
     store, data, subj = _subject(idx)
-    if teacher not in subj.get("names", []):
-        raise HTTPException(400, "الأستاذ ليس من أساتذة هذه المادة")
-    if track not in data["meta"]["grade_order"]:
-        raise HTTPException(400, "صف غير معروف")
-    try:
-        secs = sorted({int(x.strip()) for x in section_csv.split(",") if x.strip()})
-    except ValueError:
-        raise HTTPException(400, "أرقام الشعب يجب أن تكون أعداداً صحيحة مفصولة بفواصل")
-    if not secs:
-        raise HTTPException(400, "أدخل رقم شعبة واحداً على الأقل")
-    max_sec = data.get("sections", {}).get(track, 0)
-    for s in secs:
-        if s < 1 or s > max_sec:
-            raise HTTPException(400, f"شعبة {s} خارج نطاق صف {track} (1..{max_sec})")
-    # Prevent same (track, section) pinned to two teachers
-    existing = subj.setdefault("manual_assignments", [])
-    for row in existing:
-        if row["track"] == track:
-            for s in row.get("sections", []):
-                if s in secs and row["teacher"] != teacher:
-                    raise HTTPException(400,
-                        f"شعبة {s} في {track} مُسنَدة بالفعل للأستاذ {row['teacher']}")
-    existing.append({"teacher": teacher, "track": track, "sections": secs})
+    secs = sorted(set(sections))
+    _validate_manual_row(data, subj, teacher, track, secs)
+    subj.setdefault("manual_assignments", []).append(
+        {"teacher": teacher, "track": track, "sections": secs}
+    )
     store.mark_dirty()
     store.log(f"إسناد إجباري: {teacher} → {track} شعب {secs}")
+    return TEMPLATES.TemplateResponse(
+        request, "partials/manual_list.html", _editor_ctx(request, idx)
+    )
+
+
+@router.get("/{idx}/manual/{mindex}/edit", response_class=HTMLResponse)
+def edit_manual_form(idx: int, mindex: int, request: Request) -> HTMLResponse:
+    store, data, subj = _subject(idx)
+    manual = subj.get("manual_assignments", []) or []
+    if mindex < 0 or mindex >= len(manual):
+        raise HTTPException(404, "إسناد غير موجود")
+    ctx = _editor_ctx(request, idx)
+    ctx["mindex"] = mindex
+    ctx["row"] = manual[mindex]
+    return TEMPLATES.TemplateResponse(request, "partials/manual_edit_row.html", ctx)
+
+
+@router.post("/{idx}/manual/{mindex}/update", response_class=HTMLResponse)
+def update_manual(
+    idx: int,
+    mindex: int,
+    request: Request,
+    teacher: str = Form(...),
+    track: str = Form(...),
+    sections: list[int] = Form(...),
+) -> HTMLResponse:
+    store, data, subj = _subject(idx)
+    manual = subj.get("manual_assignments", []) or []
+    if mindex < 0 or mindex >= len(manual):
+        raise HTTPException(404, "إسناد غير موجود")
+    secs = sorted(set(sections))
+    _validate_manual_row(data, subj, teacher, track, secs, exclude_index=mindex)
+    manual[mindex] = {"teacher": teacher, "track": track, "sections": secs}
+    store.mark_dirty()
+    store.log(f"تعديل إسناد إجباري: {teacher} → {track} شعب {secs}")
+    return TEMPLATES.TemplateResponse(
+        request, "partials/manual_list.html", _editor_ctx(request, idx)
+    )
+
+
+@router.get("/{idx}/manual-list", response_class=HTMLResponse)
+def manual_list_partial(idx: int, request: Request) -> HTMLResponse:
+    """يُعيد عرض القائمة فقط - يستخدمه زر "إلغاء" أثناء التعديل السطري
+    للتراجع دون حفظ، بلا الحاجة لإعادة جلب المحرِّر بالكامل."""
     return TEMPLATES.TemplateResponse(
         request, "partials/manual_list.html", _editor_ctx(request, idx)
     )
@@ -266,6 +315,32 @@ def remove_manual(idx: int, mindex: int, request: Request) -> HTMLResponse:
 
 # --- merged sections (نفس الأستاذ، نفس الوقت - درس مشترك) ---
 
+def _validate_merge_row(data, subj, teacher, track, secs, exclude_index=None):
+    if teacher not in subj.get("names", []):
+        raise HTTPException(400, "الأستاذ ليس من أساتذة هذه المادة")
+    if track not in data["meta"]["grade_order"]:
+        raise HTTPException(400, "صف غير معروف")
+    if len(secs) != 2 or secs[0] == secs[1]:
+        raise HTTPException(400, "اختر شعبتين مختلفتين للدمج")
+    max_sec = data.get("sections", {}).get(track, 0)
+    for s in secs:
+        if s < 1 or s > max_sec:
+            raise HTTPException(400, f"شعبة {s} خارج نطاق صف {track} (1..{max_sec})")
+    existing = subj.get("merged_groups", []) or []
+    for i, row in enumerate(existing):
+        if exclude_index is not None and i == exclude_index:
+            continue
+        if row["track"] == track and set(row.get("sections", [])) & set(secs):
+            raise HTTPException(
+                400, f"إحدى الشعبتين {secs} مضمومة بالفعل في عملية دمج أخرى في {track}"
+            )
+    for row in subj.get("manual_assignments", []) or []:
+        if row.get("track") == track and set(row.get("sections", [])) & set(secs):
+            raise HTTPException(
+                400, f"إحدى الشعبتين {secs} لها إسناد إجباري منفصل بالفعل - أزله أولاً"
+            )
+
+
 @router.post("/{idx}/merge/add", response_class=HTMLResponse)
 def add_merge(
     idx: int,
@@ -276,31 +351,57 @@ def add_merge(
     section_b: int = Form(...),
 ) -> HTMLResponse:
     store, data, subj = _subject(idx)
-    if teacher not in subj.get("names", []):
-        raise HTTPException(400, "الأستاذ ليس من أساتذة هذه المادة")
-    if track not in data["meta"]["grade_order"]:
-        raise HTTPException(400, "صف غير معروف")
-    if section_a == section_b:
-        raise HTTPException(400, "اختر شعبتين مختلفتين للدمج")
     secs = sorted([section_a, section_b])
-    max_sec = data.get("sections", {}).get(track, 0)
-    for s in secs:
-        if s < 1 or s > max_sec:
-            raise HTTPException(400, f"شعبة {s} خارج نطاق صف {track} (1..{max_sec})")
-    existing = subj.setdefault("merged_groups", [])
-    for row in existing:
-        if row["track"] == track and set(row.get("sections", [])) & set(secs):
-            raise HTTPException(
-                400, f"إحدى الشعبتين {secs} مضمومة بالفعل في عملية دمج أخرى في {track}"
-            )
-    for row in subj.get("manual_assignments", []) or []:
-        if row.get("track") == track and set(row.get("sections", [])) & set(secs):
-            raise HTTPException(
-                400, f"إحدى الشعبتين {secs} لها إسناد إجباري منفصل بالفعل - أزله أولاً"
-            )
-    existing.append({"teacher": teacher, "track": track, "sections": secs})
+    _validate_merge_row(data, subj, teacher, track, secs)
+    subj.setdefault("merged_groups", []).append(
+        {"teacher": teacher, "track": track, "sections": secs}
+    )
     store.mark_dirty()
     store.log(f"دمج شعب: {teacher} ← {track} شعبتا {secs} في نفس الوقت")
+    return TEMPLATES.TemplateResponse(
+        request, "partials/merge_list.html", _editor_ctx(request, idx)
+    )
+
+
+@router.get("/{idx}/merge/{mindex}/edit", response_class=HTMLResponse)
+def edit_merge_form(idx: int, mindex: int, request: Request) -> HTMLResponse:
+    store, data, subj = _subject(idx)
+    groups = subj.get("merged_groups", []) or []
+    if mindex < 0 or mindex >= len(groups):
+        raise HTTPException(404, "دمج غير موجود")
+    ctx = _editor_ctx(request, idx)
+    ctx["mindex"] = mindex
+    ctx["row"] = groups[mindex]
+    return TEMPLATES.TemplateResponse(request, "partials/merge_edit_row.html", ctx)
+
+
+@router.post("/{idx}/merge/{mindex}/update", response_class=HTMLResponse)
+def update_merge(
+    idx: int,
+    mindex: int,
+    request: Request,
+    teacher: str = Form(...),
+    track: str = Form(...),
+    section_a: int = Form(...),
+    section_b: int = Form(...),
+) -> HTMLResponse:
+    store, data, subj = _subject(idx)
+    groups = subj.get("merged_groups", []) or []
+    if mindex < 0 or mindex >= len(groups):
+        raise HTTPException(404, "دمج غير موجود")
+    secs = sorted([section_a, section_b])
+    _validate_merge_row(data, subj, teacher, track, secs, exclude_index=mindex)
+    groups[mindex] = {"teacher": teacher, "track": track, "sections": secs}
+    store.mark_dirty()
+    store.log(f"تعديل دمج شعب: {teacher} ← {track} شعبتا {secs}")
+    return TEMPLATES.TemplateResponse(
+        request, "partials/merge_list.html", _editor_ctx(request, idx)
+    )
+
+
+@router.get("/{idx}/merge-list", response_class=HTMLResponse)
+def merge_list_partial(idx: int, request: Request) -> HTMLResponse:
+    """للتراجع أثناء التعديل السطري - انظر manual_list_partial أعلاه."""
     return TEMPLATES.TemplateResponse(
         request, "partials/merge_list.html", _editor_ctx(request, idx)
     )
