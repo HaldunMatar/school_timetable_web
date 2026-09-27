@@ -64,6 +64,10 @@ class Store:
         scheduler.ensure_teacher_roster(data)
         for subj in data.get("subjects", []):
             scheduler.ensure_subject_constraints(subj)
+        # الصفوف الجديدة (أول-سادس) التي أُضيفت لاحقاً لقالب الصفوف -
+        # تُضاف بشعب=0 لأي ملف مدرسة قديم لا يحويها بعد، بلا أي تأثير على
+        # بياناتها الحالية.
+        scheduler.ensure_full_grade_range(data)
         # اسم المدرسة (يظهر في الشريط العلوي وفي كل تقارير PDF) — حقل
         # اختياري أُضيف لاحقاً، فيُملأ فارغاً تلقائياً لأي ملف قديم لا يحويه.
         data.setdefault("meta", {}).setdefault("school_name", "")

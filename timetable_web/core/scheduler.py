@@ -96,6 +96,36 @@ def new_blank_data(days, periods_per_day, nisab_reference):
     }
 
 
+def ensure_full_grade_range(data):
+    """
+    Backfill any GRADE_ORDER_TEMPLATE grade missing from an existing
+    school file (e.g. one created before أول-سادس/grades 1-6 were added
+    to the template) - called on every load in Store.load(), so any real
+    school file transparently gains the newer grades the very first time
+    it's opened after an upgrade, without waiting for someone to touch
+    that specific grade first.
+
+    Backfilled grades get 0 sections (NOT the 1-section default
+    new_blank_data() gives a brand-new school) - a school that has never
+    heard of "الأول" shouldn't suddenly have a phantom section 1 needing
+    a full timetable; 0 sections is exactly how the rest of this module
+    already treats "this grade isn't used here" (see e.g. the existing
+    high-school tracks many real schools already leave at 0). Idempotent
+    - a no-op once every template grade is already present.
+    """
+    meta = data.setdefault("meta", {})
+    grade_order = meta.setdefault("grade_order", [])
+    grade_labels = meta.setdefault("grade_labels", {})
+    sections = data.setdefault("sections", {})
+    missing = [g for g in GRADE_ORDER_TEMPLATE if g not in grade_order]
+    if not missing:
+        return
+    grade_order[:0] = missing
+    for g in missing:
+        grade_labels.setdefault(g, GRADE_LABELS_TEMPLATE.get(g, g))
+        sections.setdefault(g, 0)
+
+
 def subject_required_periods(data, subject):
     """Total weekly periods this subject needs, summed across all its sections."""
     cols = data["meta"]["grade_order"]
