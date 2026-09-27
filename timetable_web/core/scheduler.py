@@ -26,12 +26,23 @@ import math
 from ortools.sat.python import cp_model
 
 
-# The canonical 8-grade Syrian curriculum structure this app was built
-# around, used as the starting point for a brand-new school file (see
-# new_blank_data) - a new school still teaches the same grades, it just
-# starts with no subjects/sections/teachers of its own yet.
-GRADE_ORDER_TEMPLATE = ["ع1", "ع2", "ع3", "ثا1أ", "ثا1ع", "ثا2أ", "ثا2ع", "ثا3"]
+# The canonical 14-grade Syrian curriculum structure (الأول ابتدائي حتى
+# البكالوريا) this app was built around, used as the starting point for a
+# brand-new school file (see new_blank_data) - a new school still teaches
+# the same grades, it just starts with no subjects/sections/teachers of
+# its own yet. Existing schools created before a grade was added here keep
+# whatever grade_order they already have - this template only ever seeds a
+# BRAND NEW school; nothing re-reads it for one that already exists. Every
+# grade defaults to 1 section (adjustable, including down to 0 for a grade
+# a given school doesn't actually teach - the rest of the app already
+# treats a 0-section grade as simply absent, no special-casing needed).
+GRADE_ORDER_TEMPLATE = [
+    "ب1", "ب2", "ب3", "ب4", "ب5", "ب6",
+    "ع1", "ع2", "ع3", "ثا1أ", "ثا1ع", "ثا2أ", "ثا2ع", "ثا3",
+]
 GRADE_LABELS_TEMPLATE = {
+    "ب1": "أول", "ب2": "ثاني", "ب3": "ثالث",
+    "ب4": "رابع", "ب5": "خامس", "ب6": "سادس",
     "ع1": "سابع", "ع2": "ثامن", "ع3": "تاسع",
     "ثا1أ": "عاشر أدبي", "ثا1ع": "عاشر علمي",
     "ثا2أ": "حادي عشر أدبي", "ثا2ع": "حادي عشر علمي",
