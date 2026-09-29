@@ -140,6 +140,31 @@ def subject_required_periods(data, subject):
     return total
 
 
+def subject_teacher_required_periods(data, subject):
+    """
+    Same as subject_required_periods, but excluding whatever's covered by
+    this subject's fixed_no_teacher_slots rules (needs no teacher AT ALL -
+    see pack_subject) - used wherever the real question is "how many
+    periods actually need a real teacher assigned?" (ensure_min_teachers,
+    validate_manual_assignments's own-teachers-fully-pinned check), as
+    opposed to subject_required_periods's "how many periods does this
+    subject occupy in total" (dashboard capacity: a fixed no-teacher
+    period still occupies a section's schedule slot, just unstaffed, so
+    that one correctly keeps counting it).
+    """
+    cols = data["meta"]["grade_order"]
+    sections = data["sections"]
+    vals = subject["periods"]
+    total = 0.0
+    for c in cols:
+        periods = float(vals.get(c, 0) or 0)
+        if periods <= 0:
+            continue
+        for s in range(1, int(sections.get(c, 0) or 0) + 1):
+            total += max(0.0, periods - _fixed_no_teacher_count(subject, c, s))
+    return total
+
+
 def grade_period_totals(data):
     """
     Total weekly periods entered (summed across all subjects) for ONE
@@ -214,7 +239,7 @@ def ensure_min_teachers(data):
     nslots = len(days) * periods_per_day
     added_report = []
     for subject in data["subjects"]:
-        total = subject_required_periods(data, subject)
+        total = subject_teacher_required_periods(data, subject)
         if total <= 0:
             continue
         names = subject["names"]
@@ -750,6 +775,117 @@ def build_section_ids(data):
     return ids
 
 
+def _fixed_no_teacher_count(subject, track, section):
+    """
+    عدد حصص (track, section) المستقطَعة لهذه المادة عبر
+    subject["fixed_no_teacher_slots"] - كل قاعدة تُساهم بحصة واحدة، تنطبق
+    إما على شعب محددة (قائمة أعداد) أو على كل شعب هذا الصف ("all"). لا
+    تتحقق من الصحة هنا (انظر validate_fixed_no_teacher_slots) - فقط تُحسَب،
+    فتُستَثنى مسبقاً من غير خطأ حتى لو كان الإعداد غير صالح مؤقتاً.
+    """
+    count = 0
+    for rule in subject.get("fixed_no_teacher_slots", []) or []:
+        if rule.get("track") != track:
+            continue
+        secs = rule.get("sections")
+        if secs == "all" or section in (secs or []):
+            count += 1
+    return count
+
+
+def validate_fixed_no_teacher_slots(data):
+    """
+    Raise a clear Arabic error for any invalid "حصة ثابتة بلا أستاذ" rule -
+    a specific weekly period of a subject that always lands at one fixed
+    period-index (any day - the solver picks which), shown on the schedule
+    with just the subject name and no teacher at all. Set from the SCHOOL
+    SUPERVISOR's own subject editor (routers/subjects.py) - unlike
+    priority_teachers above, which is admin-only. Counts as part of the
+    SAME weekly "periods" already entered for that subject/grade in the
+    periods matrix - never an extra period on top of it.
+    """
+    cols = data["meta"]["grade_order"]
+    sections_count = data["sections"]
+    periods_per_day = data["meta"]["periods_per_day"]
+    for subject in data["subjects"]:
+        rules = subject.get("fixed_no_teacher_slots", []) or []
+        if not rules:
+            continue
+        claimed_counts = {}  # (track, section) -> عدد الحصص الثابتة المُطالَب بها
+        for rule in rules:
+            track = rule.get("track")
+            period_index = rule.get("period_index")
+            secs = rule.get("sections")
+            if track not in cols:
+                raise RuntimeError(
+                    f"حصة ثابتة بلا أستاذ غير صالحة في مادة \"{subject['name']}\": الصف \"{track}\" غير معروف."
+                )
+            if not isinstance(period_index, int) or not (1 <= period_index <= periods_per_day):
+                raise RuntimeError(
+                    f"حصة ثابتة بلا أستاذ غير صالحة في مادة \"{subject['name']}\": رقم الحصة يجب أن يكون "
+                    f"بين 1 و{periods_per_day}."
+                )
+            max_sec = int(sections_count.get(track, 0) or 0)
+            if secs == "all":
+                target_secs = list(range(1, max_sec + 1))
+            elif isinstance(secs, list):
+                target_secs = secs
+                for s in target_secs:
+                    if not (1 <= s <= max_sec):
+                        raise RuntimeError(
+                            f"حصة ثابتة بلا أستاذ غير صالحة في مادة \"{subject['name']}\": الشعبة {s} غير "
+                            f"موجودة في صف \"{track}\" (المتاح حالياً: من 1 إلى {max_sec})."
+                        )
+            else:
+                raise RuntimeError(
+                    f"حصة ثابتة بلا أستاذ غير صالحة في مادة \"{subject['name']}\": يجب تحديد شعبة واحدة "
+                    f"على الأقل أو اختيار \"كل الشعب\"."
+                )
+            if not target_secs:
+                raise RuntimeError(
+                    f"حصة ثابتة بلا أستاذ غير صالحة في مادة \"{subject['name']}\": يجب تحديد شعبة واحدة "
+                    f"على الأقل أو اختيار \"كل الشعب\"."
+                )
+            for s in target_secs:
+                claimed_counts[(track, s)] = claimed_counts.get((track, s), 0) + 1
+
+        for (track, s), count in claimed_counts.items():
+            periods_for_track = float(subject["periods"].get(track, 0) or 0)
+            if count > periods_for_track + 1e-9:
+                raise RuntimeError(
+                    f"حصة ثابتة بلا أستاذ غير صالحة في مادة \"{subject['name']}\": عدد الحصص الثابتة بلا "
+                    f"أستاذ ({count}) للشعبة {s} من صف \"{track}\" أكبر من عدد حصص المادة الأسبوعية "
+                    f"المدخلة لهذا الصف ({periods_for_track:g})."
+                )
+
+
+def build_fixed_no_teacher_requirements(data):
+    """
+    يحوّل كل قواعد fixed_no_teacher_slots (كل المواد) إلى متطلبات جاهزة
+    لمحرك الحل، بنفس شكل requirements_from_slots() تماماً، لكن
+    "teacher": None و"fixed_period_index" إضافية يستخدمها solve_timetable
+    لتثبيتها على رقم حصة معيّن (أي يوم يختاره الحل) بدل التوزيع الحر. كل
+    قاعدة تُساهم بحصة واحدة بالضبط، لكل شعبة تنطبق عليها ("all" أو قائمة
+    محددة) - انظر validate_fixed_no_teacher_slots للتحقق المسبق من الصحة.
+    """
+    sections_count = data["sections"]
+    requirements = []
+    for subject in data["subjects"]:
+        for rule in subject.get("fixed_no_teacher_slots", []) or []:
+            track = rule.get("track")
+            period_index = rule.get("period_index")
+            secs = rule.get("sections")
+            max_sec = int(sections_count.get(track, 0) or 0)
+            target_secs = list(range(1, max_sec + 1)) if secs == "all" else (secs or [])
+            for s in target_secs:
+                requirements.append({
+                    "teacher": None, "subject": subject["name"],
+                    "track": track, "section": s, "periods": 1,
+                    "fixed_period_index": period_index,
+                })
+    return requirements
+
+
 def pack_subject(data, subject):
     """
     Split one subject's per-grade periods into len(names) teacher slots.
@@ -808,7 +944,14 @@ def pack_subject(data, subject):
         if periods <= 0:
             continue
         for s in range(1, int(sections[c]) + 1):
-            atoms.append({"track": c, "section": s, "periods": periods})
+            # "حصة ثابتة بلا أستاذ" (fixed_no_teacher_slots): جزء من نفس
+            # حصص هذه المادة/الصف المدخلة هنا مُستقطَع مسبقاً - solve_
+            # timetable يُجدوِلها بنفسه مباشرة (بلا أستاذ، بحصة ثابتة)،
+            # فلا تدخل هذا التوزيع بين الأساتذة على الإطلاق. إن استغرقت
+            # كل حصص هذه الشعبة، لا يبقى أي atom لها هنا إطلاقاً.
+            remaining = periods - _fixed_no_teacher_count(subject, c, s)
+            if remaining > 0:
+                atoms.append({"track": c, "section": s, "periods": remaining})
 
     manual = subject.get("manual_assignments", []) or []
     claimed = {}  # (track, section) -> teacher name
@@ -969,7 +1112,7 @@ def validate_manual_assignments(data):
             claimed_periods = sum(
                 float(subject["periods"].get(track, 0) or 0) for (track, _sec) in claimed_by
             )
-            total_periods = subject_required_periods(data, subject)
+            total_periods = subject_teacher_required_periods(data, subject)
             if claimed_periods + 1e-9 < total_periods:
                 raise RuntimeError(
                     f"تعذّر توزيع حصص مادة \"{subject['name']}\": كل أساتذة هذه المادة أصبح "
@@ -1157,6 +1300,18 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         (see teacher_fulfillment_report) - unlike constraint_notes, which
         only exists for teachers with at least one violation.
 
+    data.get("priority_teachers"): an optional list of teacher names (set
+    from the super-admin's panel, not the school supervisor's own UI - see
+    routers/admin.py) who get a LIGHT tie-break preference in the objective
+    below: purely a tenth-order tie-breaker among schedules that are
+    otherwise IDENTICAL on every criterion above (total violations, the
+    worst-teacher fairness term, and the day_off/empty_periods priority) -
+    it can never cause the solver to accept a worse outcome on any of those
+    for anyone, priority teacher included, only pick among ties in THEIR
+    favor. Not a strong override; a priority teacher whose real load makes
+    a preference genuinely unsatisfiable still gets the same fair
+    best-effort treatment as everyone else.
+
     Raises RuntimeError if no feasible schedule exists (e.g. a teacher would
     need more periods in a week than there are slots available - this is
     still a hard failure; only empty_periods and day_off are best-effort).
@@ -1180,6 +1335,7 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     validate_teacher_constraints(data)
     validate_manual_assignments(data)
     validate_merged_groups(data)
+    validate_fixed_no_teacher_slots(data)
     ensure_min_teachers(data)
 
     # Grades whose entered subjects don't yet sum to a full week are NOT
@@ -1200,15 +1356,21 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     section_ids = build_section_ids(data)
     slots = build_all_slots(data)
     requirements = requirements_from_slots(slots)
+    # "حصة ثابتة بلا أستاذ" (fixed_no_teacher_slots): متطلبات مبنية مباشرة
+    # من إعداد المادة نفسه، بمعزل تام عن pack_subject/توزيع الأساتذة -
+    # teacher=None دائماً، ومقيّدة أدناه برقم حصة ثابت (fixed_period_index).
+    requirements += build_fixed_no_teacher_requirements(data)
 
-    # requirements_from_slots() guarantees at most ONE requirement per
-    # (subject, track, section) triple (pack_subject hands each whole
-    # (track, section) atom to exactly one teacher, never splitting it), so
-    # this lookup is unambiguous. Built once here and reused below both for
-    # merge-linking and for the subject-level hard constraints.
-    requirement_by_subject_section = {
-        (r["subject"], r["track"], r["section"]): i for i, r in enumerate(requirements)
-    }
+    # requirement_by_subject_section: قد يتشارك أكثر من متطلَّب نفس مفتاح
+    # (subject, track, section) الآن (مثلاً حصص هذه الشعبة موزَّعة بين جزء
+    # يُدرِّسه أستاذ وجزء آخر ثابت بلا أستاذ لنفس المادة) - قائمة أدلة لكل
+    # مفتاح، لا دليل واحد. يُستخدم أدناه لكل من ربط الدمج والقيود الصلبة
+    # على مستوى المادة.
+    requirement_by_subject_section: dict[tuple, list[int]] = {}
+    for i, r in enumerate(requirements):
+        requirement_by_subject_section.setdefault(
+            (r["subject"], r["track"], r["section"]), []
+        ).append(i)
 
     # "دمج شعبتين": a shadow requirement's time slots must be forced
     # identical to its primary partner's (see pack_subject/
@@ -1224,10 +1386,10 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         primary_sec = r.get("merge_primary_section")
         if primary_sec is None:
             continue
-        i = requirement_by_subject_section.get((r["subject"], r["track"], primary_sec))
-        if i is None:
+        idxs = requirement_by_subject_section.get((r["subject"], r["track"], primary_sec))
+        if not idxs:
             continue
-        merge_links.append((i, j))
+        merge_links.append((idxs[0], j))
         shadow_req_idxs.add(j)
 
     if progress:
@@ -1241,7 +1403,7 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     # so they can never make generation impossible on their own.
     per_teacher_total = {}
     for i, r in enumerate(requirements):
-        if i in shadow_req_idxs:
+        if i in shadow_req_idxs or r["teacher"] is None:
             continue
         per_teacher_total[r["teacher"]] = per_teacher_total.get(r["teacher"], 0) + r["periods"]
     overloaded = {}
@@ -1286,6 +1448,20 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     for i, r in enumerate(requirements):
         model.Add(sum(x[i, s] for s in range(nslots)) == r["periods"])
 
+    # "حصة ثابتة بلا أستاذ": يجب أن تقع فقط في رقم الحصة المحدَّد
+    # (fixed_period_index، 1-based) - أي يوم، الحلّ يختار. بما أن مجموع
+    # حصصها = 1 بالضبط (القيد أعلاه)، فهذا يحصر ذلك اليوم/الحصة الوحيدة
+    # في رقم الحصة الصحيح حصراً.
+    for i, r in enumerate(requirements):
+        p_idx = r.get("fixed_period_index")
+        if p_idx is None:
+            continue
+        wrong_period_slots = [
+            s for s in range(nslots) if s % periods_per_day != p_idx - 1
+        ]
+        if wrong_period_slots:
+            model.Add(sum(x[i, s] for s in wrong_period_slots) == 0)
+
     # دمج شعبتين: force the shadow requirement's slots to exactly mirror its
     # primary partner's - same teacher (already guaranteed by pack_subject),
     # now also same time, in every slot.
@@ -1310,7 +1486,7 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     # correct too - each merged slot counted once, not twice.
     by_teacher = {}
     for i, r in enumerate(requirements):
-        if i in shadow_req_idxs:
+        if i in shadow_req_idxs or r["teacher"] is None:
             continue
         by_teacher.setdefault(r["teacher"], []).append(i)
     for teacher, idxs in by_teacher.items():
@@ -1339,11 +1515,19 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
             if float(subject["periods"].get(track, 0) or 0) <= 0:
                 continue
             for sec in range(1, int(sections_count.get(track, 0) or 0) + 1):
-                i = requirement_by_subject_section.get((subject["name"], track, sec))
-                if i is None:
+                idxs = requirement_by_subject_section.get((subject["name"], track, sec))
+                if not idxs:
                     continue
+                # عادة دليل واحد فقط؛ أكثر من دليل يحدث فقط حين تكون بعض
+                # حصص هذه الشعبة من نفس المادة "ثابتة بلا أستاذ" وبعضها
+                # الآخر تُدرَّس - by_section أدناه يضمن أصلاً عدم تزامنهما
+                # في نفس الخانة أبداً، فجمعهما هنا يبقى مؤشراً صحيحاً
+                # (0 أو 1) لوقوع هذه المادة في هذه الخانة، من أي من الطرفين.
                 for d in range(len(days)):
-                    day_vars = [x[i, d * periods_per_day + p] for p in range(periods_per_day)]
+                    day_vars = [
+                        sum(x[i, d * periods_per_day + p] for i in idxs)
+                        for p in range(periods_per_day)
+                    ]
                     if max_daily is not None:
                         model.Add(sum(day_vars) <= max_daily)
                     if max_consec is not None:
@@ -1607,7 +1791,24 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         MAX_VIOLATION_WEIGHT = max_possible_weighted_total + 1
         objective_terms.append(max_violation_var * MAX_VIOLATION_WEIGHT)
 
-    model.Minimize(sum(objective_terms))
+    # أستاذ (أساتذة) مفضَّل من لوحة الأدمن الكبير (data["priority_teachers"])
+    # - تفضيل خفيف: كل ما سبق يبقى بلا أي تغيير في الأولوية بينه، وهذا يُضاف
+    # كطبقة أخيرة أخفّ وزناً من أي طبقة سابقة (حتى من penalty_terms الخام)،
+    # عبر تكبير كامل الهدف الحالي بعامل يضمن أن أصغر تحسّن فيه يبقى أهم من
+    # كامل مجموع تفضيل الأستاذة المميزين - فلا يمكن أبداً أن يُضحّي هذا
+    # التفضيل بأي جزء من الهدف الأساسي، هو فقط يكسر التعادل بين حلول متكافئة
+    # تماماً على كل ما سبق.
+    priority_teachers = [t for t in (data.get("priority_teachers") or []) if t in by_teacher]
+    priority_violation_vars = [
+        var
+        for teacher in priority_teachers
+        for var, _tag in soft_violation_terms_by_teacher.get(teacher, [])
+    ]
+    if priority_violation_vars:
+        SCALE = len(priority_violation_vars) + 1
+        model.Minimize(sum(objective_terms) * SCALE + sum(priority_violation_vars))
+    else:
+        model.Minimize(sum(objective_terms))
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_time_in_seconds

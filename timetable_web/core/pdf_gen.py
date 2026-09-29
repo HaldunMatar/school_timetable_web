@@ -274,12 +274,17 @@ def _prepare_schedule_info(data, section_sched):
     for sid in section_ids:
         cells = section_sched[f"{sid[0]}|{sid[1]}"]
         for c in cells:
-            if c:
+            # حصة ثابتة بلا أستاذ (see fixed_no_teacher_slots): لا "أستاذ"
+            # حقيقياً هنا على الإطلاق - تُستثنى كلياً من قائمة الأساتذة (لا
+            # صفحة برنامج لها، ولا تدخل في نصاب أي أحد)، وتُلوَّن بلون
+            # محايد ثابت أدناه بدل الدخول في توزيع ألوان الأساتذة.
+            if c and c["teacher"] is not None:
                 teacher_subjects.setdefault(c["teacher"], set()).add(c["subject"])
     teacher_names = sorted(teacher_subjects.keys())
 
     t_bg, t_border = _gen_colors_pair(len(teacher_names))
     teacher_colors = {name: (t_bg[i], t_border[i]) for i, name in enumerate(teacher_names)}
+    teacher_colors[None] = ("#e5e7eb", "#9ca3af")  # حصة بلا أستاذ - رمادي محايد ثابت
 
     section_keys = [f"{t}-{s}" for (t, s) in section_ids]
     s_bg, s_border = _gen_colors_pair(len(section_keys))

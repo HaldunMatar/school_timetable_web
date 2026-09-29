@@ -129,6 +129,35 @@
               </div>
             </dialog>
 
+            {% set all_teachers, current_priority = teachers_and_priority[u.username] %}
+            <button class="small" type="button" onclick="document.getElementById('dlg-prio-{{ loop.index }}').showModal()">⭐ أستاذ مفضَّل</button>
+            <dialog id="dlg-prio-{{ loop.index }}" class="modal">
+              <form method="post" action="/admin/users/{{ u.username }}/priority-teachers">
+                <h3>أستاذ مفضَّل: {{ u.username }}</h3>
+                <p class="muted" style="font-size: 12px;">
+                  تفضيل خفيف فقط — يكسر التعادل لصالح هذا الأستاذ في تحقيق رغباته (يوم عطلة/تفريغ حصص) عند التوليد،
+                  دون التضحية بمجموع مخالفات المدرسة أو بعدالة توزيعها بين بقية الأساتذة.
+                </p>
+                {% if all_teachers %}
+                  <div class="stack" style="gap: 6px; max-height: 240px; overflow-y: auto;">
+                    {% for t in all_teachers %}
+                      <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" name="priority_teachers" value="{{ t }}"
+                               {% if t in current_priority %}checked{% endif %}>
+                        {{ t }}
+                      </label>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="muted">لا يوجد أساتذة في ملف بيانات هذه المدرسة بعد.</p>
+                {% endif %}
+                <div class="modal-actions">
+                  <button type="button" onclick="this.closest('dialog').close()">إلغاء</button>
+                  <button type="submit" class="primary">حفظ</button>
+                </div>
+              </form>
+            </dialog>
+
             <button class="danger small" type="button" onclick="document.getElementById('dlg-del-{{ loop.index }}').showModal()">🗑 حذف</button>
             <dialog id="dlg-del-{{ loop.index }}" class="modal">
               <form method="post" action="/admin/users/{{ u.username }}/delete">

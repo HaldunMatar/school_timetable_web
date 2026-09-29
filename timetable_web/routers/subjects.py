@@ -420,6 +420,56 @@ def remove_merge(idx: int, mindex: int, request: Request) -> HTMLResponse:
     )
 
 
+# --- حصة ثابتة بلا أستاذ (fixed_no_teacher_slots) ---
+# مادة معينة (مثل الرياضة) تُوضَع دائماً برقم حصة ثابت (أي يوم يختاره
+# الحل) لشعبة معينة أو لكل الشعب، بلا أي أستاذ - يظهر اسم المادة فقط في
+# البرنامج. من حساب المشرف (مدير المدرسة) نفسه، على عكس priority_teachers
+# أعلاه الذي هو من لوحة الأدمن الكبير حصراً.
+
+@router.post("/{idx}/fixed-slot/add", response_class=HTMLResponse)
+def add_fixed_slot(
+    idx: int,
+    request: Request,
+    track: str = Form(...),
+    period_index: int = Form(...),
+    all_sections: str = Form(""),
+    sections: list[int] = Form([]),
+) -> HTMLResponse:
+    store, data, subj = _subject(idx)
+    if track not in data["meta"]["grade_order"]:
+        raise HTTPException(400, "صف غير معروف")
+    rule = {
+        "track": track,
+        "period_index": period_index,
+        "sections": "all" if all_sections == "on" else sorted(set(sections)),
+    }
+    subj.setdefault("fixed_no_teacher_slots", []).append(rule)
+    try:
+        scheduler.validate_fixed_no_teacher_slots(data)
+    except RuntimeError as exc:
+        subj["fixed_no_teacher_slots"].pop()  # تراجع - لا نحفظ إعداداً غير صالح
+        raise HTTPException(400, str(exc))
+    store.mark_dirty()
+    sec_desc = "كل الشعب" if rule["sections"] == "all" else f"شعب {rule['sections']}"
+    store.log(f"حصة ثابتة بلا أستاذ: {subj['name']} ← {track} ({sec_desc}) — الحصة {period_index}")
+    return TEMPLATES.TemplateResponse(
+        request, "partials/fixed_slot_list.html", _editor_ctx(request, idx)
+    )
+
+
+@router.post("/{idx}/fixed-slot/{findex}/delete", response_class=HTMLResponse)
+def remove_fixed_slot(idx: int, findex: int, request: Request) -> HTMLResponse:
+    store, data, subj = _subject(idx)
+    rules = subj.setdefault("fixed_no_teacher_slots", [])
+    if findex < 0 or findex >= len(rules):
+        raise HTTPException(404, "غير موجود")
+    rules.pop(findex)
+    store.mark_dirty()
+    return TEMPLATES.TemplateResponse(
+        request, "partials/fixed_slot_list.html", _editor_ctx(request, idx)
+    )
+
+
 # --- subject constraints (hard) ---
 
 @router.post("/{idx}/constraint/{key}", response_class=HTMLResponse)

@@ -172,6 +172,81 @@
     {% include "partials/merge_list.html" %}
   </div>
 
+  {# ---- fixed slot with no teacher (e.g. رياضة with no teacher needed) ---- #}
+  <div class="card">
+    <h3 style="margin-top: 0;">حصة ثابتة بلا أستاذ <small class="muted">(اختياري)</small></h3>
+    <p class="muted" style="font-size: 12px;">
+      لمادة لا تحتاج أستاذاً (مثل حصة رياضة حرة) — تُدرَج دائماً برقم حصة ثابت (أي يوم يختاره التوليد)، بلا أي
+      أستاذ، ويظهر اسم المادة فقط في البرنامج. تُحسَب ضمن نفس حصص المادة الأسبوعية المدخلة أعلاه، وليست حصة
+      إضافية. غير مفعّلة افتراضياً — لا تؤثر إطلاقاً على أي شعبة لم تُفعَّل لها.
+    </p>
+    <form hx-post="/subjects/{{ idx }}/fixed-slot/add" hx-target="#fixed-slot-list" hx-swap="outerHTML"
+          hx-on::after-request="this.reset(); this.querySelector('[name=track]').dispatchEvent(new Event('change'))"
+          class="stack" style="gap: 8px;">
+      <div class="row" style="gap: 8px; flex-wrap: wrap;">
+        <label style="flex: 0 0 160px; display: flex; flex-direction: column; gap: 4px;">
+          <span class="muted" style="font-size: 12px;">الصف</span>
+          <select name="track" required>
+            <option value="">—</option>
+            {% for g in grade_order %}
+              <option value="{{ g }}" data-max="{{ sections.get(g, 0) }}">{{ grade_labels.get(g, g) }} ({{ sections.get(g, 0) }} شعبة)</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label style="flex: 0 0 140px; display: flex; flex-direction: column; gap: 4px;">
+          <span class="muted" style="font-size: 12px;">رقم الحصة</span>
+          <select name="period_index" required>
+            {% for p in range(1, data.meta.periods_per_day + 1) %}
+              <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div>
+        <label style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+          <input type="checkbox" name="all_sections" data-all-sections>
+          كل الشعب
+        </label>
+        <div class="row" style="gap: 8px; align-items: center; margin-bottom: 4px;">
+          <span class="muted" style="font-size: 12px;">أو شعب محددة</span>
+          <button type="button" class="small" data-sections-select-all>تحديد الكل</button>
+          <button type="button" class="small" data-sections-select-none>إلغاء التحديد</button>
+        </div>
+        <div data-sections-checkboxes class="row" style="gap: 6px; flex-wrap: wrap; min-height: 30px;"></div>
+      </div>
+      <div>
+        <button type="submit" class="primary">+ إضافة حصة ثابتة</button>
+      </div>
+    </form>
+    <script>
+      (function () {
+        var form = document.currentScript.previousElementSibling;
+        var trackSel = form.querySelector('[name="track"]');
+        var container = form.querySelector('[data-sections-checkboxes]');
+        var allCb = form.querySelector('[data-all-sections]');
+        function sync() {
+          var opt = trackSel.selectedOptions[0];
+          var max = opt ? parseInt(opt.getAttribute("data-max") || "0", 10) : 0;
+          window.__fillSectionCheckboxes(container, max);
+        }
+        function syncDisabled() {
+          container.querySelectorAll("input[type=checkbox]").forEach(function (cb) { cb.disabled = allCb.checked; });
+        }
+        trackSel.addEventListener("change", sync);
+        allCb.addEventListener("change", syncDisabled);
+        form.querySelector('[data-sections-select-all]').addEventListener("click", function () {
+          container.querySelectorAll("input[type=checkbox]").forEach(function (cb) { cb.checked = true; });
+        });
+        form.querySelector('[data-sections-select-none]').addEventListener("click", function () {
+          container.querySelectorAll("input[type=checkbox]").forEach(function (cb) { cb.checked = false; });
+        });
+        sync();
+        syncDisabled();
+      })();
+    </script>
+    {% include "partials/fixed_slot_list.html" %}
+  </div>
+
   {# ---- subject-level hard constraints ---- #}
   <div class="card">
     <h3 style="margin-top: 0;">قيود جدولة خاصة بهذه المادة <small class="muted">(صلبة — تُفشل التوليد إن استحال تحقيقها)</small></h3>

@@ -44,15 +44,37 @@ def _school_name_for(data_file: str | None) -> str:
         return ""
 
 
+def _teachers_and_priority_for(data_file: str | None) -> tuple[list[str], set[str]]:
+    """يقرأ القائمة المركزية لأساتذة مدرسة مشرف + من هو المفضَّل حالياً
+    منهم (priority_teachers) — فارغتان إن لم يوجد الملف بعد."""
+    if not data_file:
+        return [], set()
+    target = SCHOOLS_DIR / data_file
+    if not target.exists():
+        return [], set()
+    try:
+        with target.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return [], set()
+    teachers = sorted(data.get("teachers", []) or [])
+    priority = set(data.get("priority_teachers", []) or [])
+    return teachers, priority
+
+
 @router.get("", response_class=HTMLResponse)
 def index(request: Request, admin: User = Depends(require_admin)) -> HTMLResponse:
     users = [u for u in load_users() if not u.is_admin()]
     admins = [u for u in load_users() if u.is_admin()]
     school_names = {u.username: _school_name_for(u.data_file) for u in users}
+    teachers_and_priority = {u.username: _teachers_and_priority_for(u.data_file) for u in users}
     return TEMPLATES.TemplateResponse(
         request,
         "admin/users.html",
-        {"users": users, "admins": admins, "me": admin, "school_names": school_names},
+        {
+            "users": users, "admins": admins, "me": admin, "school_names": school_names,
+            "teachers_and_priority": teachers_and_priority,
+        },
     )
 
 
@@ -186,6 +208,32 @@ def download_data_for_user(username: str, admin: User = Depends(require_admin)) 
     if not target.exists():
         raise HTTPException(404, "ملف البيانات غير موجود على القرص")
     return FileResponse(target, media_type="application/json", filename=user.data_file)
+
+
+@router.post("/users/{username}/priority-teachers")
+def update_priority_teachers(
+    username: str,
+    request: Request,
+    admin: User = Depends(require_admin),
+    priority_teachers: list[str] = Form([]),
+) -> RedirectResponse:
+    """يضبط أستاذ (أو أساتذة) مفضَّلين لمدرسة مشرف معيّن - تفضيل خفيف (كسر
+    تعادل فقط) في تحقيق رغباتهم عند التوليد، انظر توثيق solve_timetable.
+    يُكتَب مباشرة إلى ملف بيانات هذه المدرسة (لا Store حياً للأدمن)، ويُمسَح
+    كاش المشرف فوراً كما في upload_data_for_user أعلاه."""
+    user = find_user(username)
+    if not user or not user.data_file:
+        raise HTTPException(404, "غير موجود أو لا يملك ملف بيانات")
+    target = SCHOOLS_DIR / user.data_file
+    if not target.exists():
+        raise HTTPException(404, "ملف البيانات غير موجود على القرص")
+    data = json.loads(target.read_text(encoding="utf-8"))
+    valid_teachers = set(data.get("teachers", []) or [])
+    chosen = sorted(set(priority_teachers) & valid_teachers)
+    data["priority_teachers"] = chosen
+    target.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    drop_store(username)
+    return RedirectResponse("/admin", status_code=303)
 
 
 @router.post("/users/{username}/delete")

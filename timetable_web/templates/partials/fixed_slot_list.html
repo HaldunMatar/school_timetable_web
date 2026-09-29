@@ -1,0 +1,29 @@
+<div id="fixed-slot-list">
+  {% if subj.fixed_no_teacher_slots %}
+    <table style="margin-top: 8px;">
+      <thead><tr><th>الصف</th><th>الشعب</th><th>رقم الحصة</th><th></th></tr></thead>
+      <tbody>
+        {% for f in subj.fixed_no_teacher_slots %}
+          <tr>
+            <td>{{ grade_labels.get(f.track, f.track) }}</td>
+            <td>
+              {% if f.sections == "all" %}
+                <span class="pill">كل الشعب</span>
+              {% else %}
+                {% for s in f.sections %}<span class="pill">{{ s }}</span>{% endfor %}
+              {% endif %}
+            </td>
+            <td>{{ f.period_index }}</td>
+            <td>
+              <button class="danger small"
+                      hx-post="/subjects/{{ idx }}/fixed-slot/{{ loop.index0 }}/delete"
+                      hx-target="#fixed-slot-list" hx-swap="outerHTML">🗑</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted" style="margin: 8px 0 0 0;">— لا يوجد حصص ثابتة بلا أستاذ —</p>
+  {% endif %}
+</div>
