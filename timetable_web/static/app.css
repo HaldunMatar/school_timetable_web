@@ -61,7 +61,7 @@ th { background: #f0f2f5; font-weight: 600; color: var(--ink); }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: #fafbfc; }
 
-input[type="text"], input[type="number"], input[type="time"], input[type="file"], select, textarea {
+input[type="text"], input[type="password"], input[type="number"], input[type="time"], input[type="file"], select, textarea {
   width: 100%; padding: 6px 8px; border: 1px solid var(--border-strong);
   border-radius: 6px; background: #fff; font-size: 14px; font-family: inherit;
 }
