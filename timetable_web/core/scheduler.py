@@ -1251,14 +1251,21 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     every violation onto one unlucky teacher and spreading the same total
     count thinly across several. To stop the solver from favoring either
     outcome arbitrarily, a second term is added on top that specifically
-    minimizes the WORST single teacher's violation count (see
-    max_violation_var below), weighted heavily enough that it always wins
-    out over the plain total - so between two schedules with the same
+    minimizes the WORST-OFF single teacher's UNFULFILLED PERCENTAGE (see
+    max_frac_var below - achieved/requested, the exact number
+    teacher_fulfillment_report() shows as "نسبة تحقق الرغبات", not a raw
+    violated-slot count), weighted heavily enough that it always wins out
+    over the plain total - so between two schedules with the same
     worst-case teacher, the total-violation term still breaks the tie, but
     the solver will never accept "teacher A now has 3 violations instead of
     1" merely to shave a couple of violations off other teachers combined.
-    This does not change what is achievable, only how the unavoidable
-    violations (if any) are distributed among teachers.
+    Scoring this as a percentage rather than a raw count matters: a teacher
+    who asked for 1 slot and got 0 (0% fulfilled) and one who asked for 10
+    and got 9 (90% fulfilled) both have exactly "1 violated slot" - a raw
+    count treats them as equally bad off, while percentage fairness
+    correctly protects the first before the second. This does not change
+    what is achievable, only how the unavoidable violations (if any) are
+    distributed among teachers.
 
     Priority between the two soft preferences: for any teacher who has
     BOTH "يوم عطلة" (day_off) and "تفريغ حصص بداية/نهاية اليوم"
@@ -1762,34 +1769,59 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         objective_terms.append(v * DAY_OFF_WEIGHT)
 
     # Fairness (min-max) on top of the plain weighted total above: minimize
-    # the worst single teacher's violation LOAD too (see the docstring
-    # above solve_timetable for the "spread vs. concentrate" problem this
-    # fixes) - measured in the SAME weighted units as above (not a raw
-    # violation count), so the day_off-over-empty_periods priority holds
-    # here as well: a teacher with several sacrificed empty_periods slots
-    # but a protected day off is correctly treated as better off than a
-    # teacher with a single violated day off, even though the former has
-    # more individual violated slots. MAX_VIOLATION_WEIGHT is set high
-    # enough that improving the worst case by even the smallest unit always
-    # outweighs any possible swing in the plain weighted total term, so it
-    # is effectively optimized first, with the plain total acting only as a
-    # tie-breaker among schedules sharing the same worst case.
+    # the worst-off teacher's UNFULFILLED PERCENTAGE (achieved/requested),
+    # NOT a raw/weighted violated-slot count as an earlier version of this
+    # did - see the docstring above solve_timetable for the "spread vs.
+    # concentrate" problem this fixes in general. The switch to percentage
+    # matters because a raw count treats a teacher who asked for 1 slot and
+    # got 0 (0% fulfilled) as EXACTLY as bad as a teacher who asked for 10
+    # and got 9 (90% fulfilled) - both have "1 violated slot" - even though
+    # the first is at rock bottom and the second nearly fully satisfied.
+    # Percentage fairness tells them apart correctly, and it now optimizes
+    # the SAME number teacher_fulfillment_report()/"نسبة تحقق الرغبات"
+    # actually shows the user, instead of a proxy metric for it.
+    #
+    # CP-SAT needs integer/linear arithmetic, so each teacher's fraction is
+    # scored on a shared FRAC_SCALE (0..FRAC_SCALE representing 0%..100%)
+    # via the inequality max_frac_var * requested >= violated * FRAC_SCALE
+    # - equivalent to max_frac_var >= violated * FRAC_SCALE / requested, so
+    # minimizing max_frac_var drives it down to exactly the worst teacher's
+    # true (scaled) unfulfilled fraction. This sidesteps ever computing an
+    # LCM of every teacher's own "requested" count to get a common exact
+    # denominator (that LCM could be astronomically large across many
+    # teachers with near-coprime request counts, making the model
+    # numerically unusable) - one shared scale plus one inequality per
+    # teacher is both precise enough (two decimal digits of percentage) and
+    # safely bounded regardless of school size.
+    #
+    # day_off-over-empty_periods priority is UNCHANGED and NOT part of this
+    # tier: it is enforced separately by the DAY_OFF_WEIGHT/
+    # EMPTY_PERIODS_WEIGHT dominance in the plain weighted total above, a
+    # strictly higher-priority tier than this one, so a teacher with BOTH
+    # settings enabled still always gets their day_off protected first (see
+    # that comment block). This fairness tier only ever distinguishes
+    # between schedules already tied on that higher tier - it purposefully
+    # does NOT also weight a violated day_off slot more than a violated
+    # empty_periods slot when comparing PERCENTAGES ACROSS different
+    # teachers, since a teacher at 100% unfulfilled is equally badly off
+    # here regardless of which preference type that violation happens to
+    # be - treating one type as unconditionally worse than the other
+    # cross-teacher, independent of how much of each was actually
+    # requested, was exactly the bias this change is meant to remove.
     if soft_violation_terms_emptyperiods or soft_violation_terms_dayoff:
         weight_of = {"empty_periods": EMPTY_PERIODS_WEIGHT, "day_off": DAY_OFF_WEIGHT}
         max_possible_weighted_total = (
             len(soft_violation_terms_emptyperiods) * EMPTY_PERIODS_WEIGHT
             + len(soft_violation_terms_dayoff) * DAY_OFF_WEIGHT
         )
-        max_violation_var = model.NewIntVar(0, max_possible_weighted_total, "max_teacher_violation")
+        FRAC_SCALE = 10000  # دقة 0.01% - كافية جداً وبلا أي مخاطر عددية
+        max_frac_var = model.NewIntVar(0, FRAC_SCALE, "max_teacher_unfulfilled_frac")
         for teacher, tagged_terms in soft_violation_terms_by_teacher.items():
-            terms_upper_bound = sum(weight_of[tag] for _, tag in tagged_terms)
-            teacher_violation_load = model.NewIntVar(
-                0, terms_upper_bound, f"violation_load_{teacher}")
-            model.Add(teacher_violation_load == sum(
-                var * weight_of[tag] for var, tag in tagged_terms))
-            model.Add(max_violation_var >= teacher_violation_load)
+            requested = len(tagged_terms)  # مضمون > 0 - انظر كيف يُبنى القاموس أعلاه
+            violated = sum(var for var, _tag in tagged_terms)
+            model.Add(max_frac_var * requested >= violated * FRAC_SCALE)
         MAX_VIOLATION_WEIGHT = max_possible_weighted_total + 1
-        objective_terms.append(max_violation_var * MAX_VIOLATION_WEIGHT)
+        objective_terms.append(max_frac_var * MAX_VIOLATION_WEIGHT)
 
     # أستاذ (أساتذة) مفضَّل من لوحة الأدمن الكبير (data["priority_teachers"])
     # - تفضيل خفيف: كل ما سبق يبقى بلا أي تغيير في الأولوية بينه، وهذا يُضاف
