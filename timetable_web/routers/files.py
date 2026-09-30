@@ -60,6 +60,31 @@ def update_school_name(name: str = Form("")) -> Response:
     return Response('<span class="ok-mark">✓ تم التحديث (لا تنسَ الحفظ)</span>')
 
 
+@router.post("/day-periods")
+def update_day_periods(day: str = Form(...), count: int = Form(...)) -> Response:
+    """يُحدَّث عدد حصص يوم معيّن (meta.periods_per_day_override) — لا يمكن أن
+    يتجاوز العدد الأساسي meta.periods_per_day (فقط أقل منه أو يساويه)، فذلك
+    العدد الأساسي يبقى دوماً هو عرض شبكة الجدول الثابت لكل الأيام (انظر
+    scheduler.day_period_count). لا يحفظ على القرص فوراً، كأي تعديل آخر."""
+    store = get_store()
+    if store.data is None:
+        raise HTTPException(400, "لا يوجد ملف محمَّل")
+    data = store.data
+    days = data["meta"]["days"]
+    if day not in days:
+        raise HTTPException(400, f"\"{day}\" ليس من أيام الأسبوع الدراسي المعرَّفة")
+    base = int(data["meta"]["periods_per_day"])
+    if not (1 <= count <= base):
+        raise HTTPException(400, f"عدد الحصص يجب أن يكون بين 1 و{base}")
+    override = data["meta"].setdefault("periods_per_day_override", {})
+    if count == base:
+        override.pop(day, None)
+    else:
+        override[day] = count
+    store.mark_dirty()
+    return Response('<span class="ok-mark">✓ تم التحديث (لا تنسَ الحفظ)</span>')
+
+
 @router.post("/new")
 async def new_school(request: Request) -> RedirectResponse:
     import json

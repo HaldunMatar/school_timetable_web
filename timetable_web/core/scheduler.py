@@ -126,6 +126,36 @@ def ensure_full_grade_range(data):
         sections.setdefault(g, 0)
 
 
+def day_period_count(data, day_name):
+    """
+    Real number of periods on this specific day - meta.periods_per_day
+    unless meta.periods_per_day_override gives this day a SMALLER count
+    (e.g. الخميس has 5 instead of the school's usual 6). Always clamped to
+    1..periods_per_day: a day can be shortened, never lengthened, since
+    periods_per_day is also the fixed row-count every solver/PDF/grid
+    calculation below is built around (see solve_timetable's nslots) - a
+    shortened day just leaves its trailing rows permanently empty instead
+    of reshaping the whole week's grid.
+    """
+    base = int(data["meta"]["periods_per_day"])
+    override = (data["meta"].get("periods_per_day_override") or {}).get(day_name)
+    if override is None:
+        return base
+    try:
+        override = int(override)
+    except (TypeError, ValueError):
+        return base
+    return max(1, min(override, base))
+
+
+def total_slots(data):
+    """Real number of usable periods across the whole week (sum of each
+    day's own day_period_count) - the true capacity figure, as opposed to
+    len(days)*periods_per_day which overcounts once a day is shortened."""
+    days = data["meta"]["days"]
+    return sum(day_period_count(data, d) for d in days)
+
+
 def subject_required_periods(data, subject):
     """Total weekly periods this subject needs, summed across all its sections."""
     cols = data["meta"]["grade_order"]
@@ -194,10 +224,8 @@ def incomplete_grades(data):
     when every grade with sections lines up exactly.
     """
     cols = data["meta"]["grade_order"]
-    days = data["meta"]["days"]
-    periods_per_day = data["meta"]["periods_per_day"]
-    nslots = len(days) * periods_per_day
     labels = data["meta"]["grade_labels"]
+    nslots = total_slots(data)
     totals = grade_period_totals(data)
     mismatched = []
     for grade in cols:
@@ -234,9 +262,7 @@ def ensure_min_teachers(data):
     names, so a caller (e.g. the GUI) can report or refresh around it.
     """
     nisab = float(data["meta"].get("nisab_reference", 0) or 0)
-    days = data["meta"]["days"]
-    periods_per_day = data["meta"]["periods_per_day"]
-    nslots = len(days) * periods_per_day
+    nslots = total_slots(data)
     added_report = []
     for subject in data["subjects"]:
         total = subject_teacher_required_periods(data, subject)
@@ -660,9 +686,7 @@ def teacher_capacity(data, teacher_name):
     more periods than literally exist in the week) before the full CP-SAT
     model is built.
     """
-    days = data["meta"]["days"]
-    periods_per_day = data["meta"]["periods_per_day"]
-    return len(days) * periods_per_day
+    return total_slots(data)
 
 
 def validate_teacher_constraints(data):
@@ -1335,6 +1359,13 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     days = data["meta"]["days"]
     periods_per_day = data["meta"]["periods_per_day"]
     nslots = len(days) * periods_per_day
+    # عدد الحصص الفعلي لكل يوم (day_period_count) - عادة نفس periods_per_day،
+    # إلا ليوم له عدد أصغر عبر meta.periods_per_day_override (مثلاً الخميس 5
+    # بدل 6). الشبكة نفسها تبقى بعرض periods_per_day ثابت لكل الأيام (نفس
+    # nslots/slot_day أعلاه بلا أي تغيير) - يوم أقصر يترك صفوفه الأخيرة
+    # الزائدة معطَّلة دائماً (انظر "أيام أقصر من العدد الأساسي" أدناه) بدل
+    # إعادة تشكيل الشبكة بالكامل.
+    day_counts = [day_period_count(data, d) for d in days]
 
     def slot_day(s):
         return s // periods_per_day
@@ -1433,6 +1464,25 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     for i, r in enumerate(requirements):
         for s in range(nslots):
             x[i, s] = model.NewBoolVar(f"x_{i}_{s}")
+
+    # أيام أقصر من العدد الأساسي (periods_per_day): كل حصة زائدة عن
+    # day_counts[d] لليوم d (مثلاً الحصة السادسة ليوم مقصور على 5) مُثبَّتة
+    # صفراً لكل المتطلَّبات - لا يمكن لأي شيء أن يُجدوَل هناك أصلاً، لأن ذلك
+    # اليوم ببساطة لا يملك تلك الحصة. هذا وحده كافٍ ليجعل كل حساب لاحق مبني
+    # على x[i, s] (المجاميع/busy/إلخ) يتصرف بشكل صحيح تلقائياً بلا أي حاجة
+    # لتغيير شكل الشبكة (nslots يبقى periods_per_day لكل الأيام كما هو).
+    disabled_slots_by_day = {
+        d: list(range(day_counts[d], periods_per_day))
+        for d in range(len(days)) if day_counts[d] < periods_per_day
+    }
+    if disabled_slots_by_day:
+        disabled_slots = [
+            d * periods_per_day + p
+            for d, ps in disabled_slots_by_day.items() for p in ps
+        ]
+        for i in range(len(requirements)):
+            for s in disabled_slots:
+                model.Add(x[i, s] == 0)
 
     # Warm start: seed every x[i, s] with a hint derived from a previous
     # solve's section_sched, if one was given. A requirement whose
@@ -1629,12 +1679,18 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                 day_override = per_day_cfg.get(day_name) if specific_mode else None
                 start_cfg = (day_override or {}).get("start", ep["start"])
                 end_cfg = (day_override or {}).get("end", ep["end"])
+                # يُحصَر العدّان بعدد حصص هذا اليوم الفعلي (day_counts[d])، لا
+                # periods_per_day العام - يوم أقصر (الخميس 5 بدل 6 مثلاً)
+                # "نهايته" هي فعلاً الحصة الخامسة لا السادسة (المُعطَّلة أصلاً
+                # أعلاه)، وإلا لَظُنَّ الطلب محقَّقاً بمجرد فراغ حصة غير موجودة
+                # أصلاً بدل الحصة الأخيرة الحقيقية من ذلك اليوم.
+                real_count = day_counts[d]
                 start_count = (
-                    max(0, min(int(start_cfg.get("count") or 0), periods_per_day))
+                    max(0, min(int(start_cfg.get("count") or 0), real_count))
                     if start_cfg.get("enabled") else 0
                 )
                 end_count = (
-                    max(0, min(int(end_cfg.get("count") or 0), periods_per_day))
+                    max(0, min(int(end_cfg.get("count") or 0), real_count))
                     if end_cfg.get("enabled") else 0
                 )
                 if not start_count and not end_count:
@@ -1649,7 +1705,7 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                 if start_count:
                     targeted_periods.update(range(start_count))
                 if end_count:
-                    targeted_periods.update(range(periods_per_day - end_count, periods_per_day))
+                    targeted_periods.update(range(real_count - end_count, real_count))
                 for p in sorted(targeted_periods):
                     soft_violation_terms_emptyperiods.append(busy[d, p])
                     soft_violation_terms_by_teacher.setdefault(teacher, []).append(
@@ -1718,7 +1774,12 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
             max_gaps = max(0, int(gap_cfg["max"] or 0))
             for d in range(len(days)):
                 gap_vars = []
-                for p in range(1, periods_per_day):
+                # يقتصر العدّ على حصص هذا اليوم الفعلية (day_counts[d]) لا
+                # periods_per_day - وإلا لَعُدَّت نهاية يوم أقصر (آخر حصة
+                # حقيقية مشغولة تليها حصة معطَّلة دائماً فارغة) نافذة فراغ
+                # وهمية، فيصبح قيد صلب (hard constraint) هنا مرفوضاً بلا سبب
+                # حقيقي ليوم لا يملك أي فجوة فعلية على الإطلاق.
+                for p in range(1, day_counts[d]):
                     g = model.NewBoolVar(f"gap_{teacher}_{d}_{p}")
                     prev_b, cur_b = busy[d, p - 1], busy[d, p]
                     model.AddBoolAnd([prev_b, cur_b.Not()]).OnlyEnforceIf(g)

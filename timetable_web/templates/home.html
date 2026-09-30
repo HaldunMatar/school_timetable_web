@@ -27,7 +27,7 @@
 
     <div class="card">
       <h3>تنزيل + توليد أساتذة ناقصين</h3>
-      <p class="muted" style="font-size: 12px;">ملف بياناتك مخصَّص لك — لا يمكن استبداله من هنا. لتغيير هيكل الأيام/الحصص، تواصل مع المدير.</p>
+      <p class="muted" style="font-size: 12px;">ملف بياناتك مخصَّص لك — لا يمكن استبداله من هنا. لإضافة/حذف أيام أو تغيير العدد الأساسي للحصص، تواصل مع المدير — يمكنك تخصيص عدد حصص كل يوم بنفسك أدناه.</p>
       <div class="row" style="gap: 8px;">
         <a class="btn" href="/file/download" hx-boost="false" download {% if not store.current_path %}aria-disabled="true"{% endif %}>⤓ تنزيل JSON</a>
         <button hx-post="/file/fill-missing-teachers" hx-target="#toast" hx-swap="innerHTML"
@@ -41,6 +41,37 @@
   </div>
 
   {% if store.current_path %}
+  <div class="card">
+    <h3>عدد الحصص اليومية</h3>
+    <p class="muted" style="font-size: 12px;">
+      العدد الأساسي {{ data.meta.periods_per_day }} حصص/يوم لكل الأيام. يمكنك
+      تخصيص عدد أقل ليوم معيّن (مثلاً {{ data.meta.days[-1] }} 5 حصص بدل
+      {{ data.meta.periods_per_day }}) — الحصص الزائدة على العدد المختار في
+      ذلك اليوم تبقى فارغة دائماً في كل الجداول المولَّدة.
+    </p>
+    <table>
+      <thead><tr><th>اليوم</th><th>عدد الحصص</th></tr></thead>
+      <tbody>
+        {% for day in data.meta.days %}
+          <tr>
+            <td>{{ day }}</td>
+            <td class="row" style="gap: 8px; align-items: center;">
+              <select name="count" hx-post="/file/day-periods" hx-trigger="change"
+                      hx-vals='{"day": "{{ day }}"}'
+                      hx-target="#day-periods-mark-{{ loop.index0 }}" hx-swap="innerHTML">
+                {% set current = (data.meta.periods_per_day_override or {}).get(day, data.meta.periods_per_day) %}
+                {% for n in range(1, data.meta.periods_per_day + 1) %}
+                  <option value="{{ n }}" {% if n == current %}selected{% endif %}>{{ n }}</option>
+                {% endfor %}
+              </select>
+              <span id="day-periods-mark-{{ loop.index0 }}" class="ok-mark"></span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
   <div class="card">
     <h3>الخطوات المعتادة</h3>
     <ol>

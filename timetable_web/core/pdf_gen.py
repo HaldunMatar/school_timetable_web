@@ -175,7 +175,7 @@ def _cover_flowables(title, subtitle, meta_line, school_name=None):
 
 
 def _weekly_grid_table(title_text, days, periods_per_day, cell_at, color_lookup,
-                        footer_note=None, warning_notes=None):
+                        footer_note=None, warning_notes=None, day_real_counts=None):
     """
     Build [title, table, optional footer] flowables for one weekly grid.
 
@@ -184,6 +184,14 @@ def _weekly_grid_table(title_text, days, periods_per_day, cell_at, color_lookup,
     `warning_notes` -> optional list of soft-constraint-violation note
     strings (a teacher can have more than one, e.g. both "تفريغ حصص" and
     "يوم عطلة" unmet on the same schedule).
+    `day_real_counts` -> optional list (parallel to `days`) of each day's
+    ACTUAL period count (see scheduler.day_period_count) when it's shorter
+    than `periods_per_day` for some day (e.g. الخميس has 5 instead of 6,
+    per meta.periods_per_day_override) - every row from that count onward,
+    for that day's column only, is shaded a distinct darker gray with no
+    `cell_at` call at all (that period genuinely doesn't exist that day,
+    as opposed to merely being unscheduled), plus one explanatory footer
+    line. None (the default) means every day has the full periods_per_day.
 
     Columns are laid out right-to-left (period/"corner" column rightmost,
     then day[0], day[1], ... progressing left) to match how an Arabic
@@ -220,10 +228,16 @@ def _weekly_grid_table(title_text, days, periods_per_day, cell_at, color_lookup,
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("BACKGROUND", (corner_col, 1), (corner_col, -1), colors.HexColor("#eef2f7")),
     ]
+    any_shortened_day = False
     for p in range(periods_per_day):
         r = p + 1
         row = []
         for pos, d in enumerate(reversed(range(ndays))):
+            if day_real_counts is not None and p >= day_real_counts[d]:
+                any_shortened_day = True
+                row.append("")
+                style_cmds.append(("BACKGROUND", (pos, r), (pos, r), colors.HexColor("#c7c7c7")))
+                continue
             entry = cell_at(p, d)
             if entry is None:
                 row.append("")
@@ -245,6 +259,9 @@ def _weekly_grid_table(title_text, days, periods_per_day, cell_at, color_lookup,
     if footer_note:
         flow.append(Spacer(1, 2.5 * mm))
         flow.append(_p(footer_note, 10, color="#555555"))
+    if any_shortened_day:
+        flow.append(Spacer(1, 1.5 * mm))
+        flow.append(_p("الخانات الرمادية الغامقة: لا توجد حصة في هذا اليوم أصلاً.", 9.5, color="#666666"))
     if warning_notes:
         # Soft-constraint violation notes (e.g. "تفريغ حصص" or "يوم عطلة"
         # couldn't be fully honored some days) - styled distinctly (amber,
@@ -297,6 +314,7 @@ def _build_section_flowables(data, section_sched, section_ids, teacher_colors):
     days = data["meta"]["days"]
     periods_per_day = data["meta"]["periods_per_day"]
     grade_labels = data["meta"]["grade_labels"]
+    day_real_counts = [scheduler.day_period_count(data, d) for d in days]
 
     def slot_idx(day, period):
         return day * periods_per_day + period
@@ -317,7 +335,8 @@ def _build_section_flowables(data, section_sched, section_ids, teacher_colors):
             return (c["subject"], c["teacher"], c["teacher"])
 
         title = f"{grade_labels[track]} — الشعبة {s}"
-        flow_sections.extend(_weekly_grid_table(title, days, periods_per_day, cell_at, teacher_colors))
+        flow_sections.extend(_weekly_grid_table(
+            title, days, periods_per_day, cell_at, teacher_colors, day_real_counts=day_real_counts))
 
     return flow_sections
 
@@ -328,6 +347,7 @@ def _build_teacher_flowables(data, section_sched, section_ids, teacher_names, te
     periods_per_day = data["meta"]["periods_per_day"]
     nslots = len(days) * periods_per_day
     grade_labels = data["meta"]["grade_labels"]
+    day_real_counts = [scheduler.day_period_count(data, d) for d in days]
 
     def slot_idx(day, period):
         return day * periods_per_day + period
@@ -361,7 +381,8 @@ def _build_teacher_flowables(data, section_sched, section_ids, teacher_names, te
         footer = f"إجمالي الحصص الأسبوعية: {total}"
         warnings = (constraint_notes or {}).get(tname)
         flow_teachers.extend(_weekly_grid_table(title, days, periods_per_day, cell_at, section_colors,
-                                                  footer, warning_notes=warnings))
+                                                  footer, warning_notes=warnings,
+                                                  day_real_counts=day_real_counts))
 
     return flow_teachers
 
