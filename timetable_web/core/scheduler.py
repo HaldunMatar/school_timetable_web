@@ -673,20 +673,42 @@ def effective_constraints(data, teacher_name):
 
 def teacher_capacity(data, teacher_name):
     """
-    Worst-case max usable weekly periods for this teacher: simply every
-    slot in the week. Neither "تفريغ حصص في بداية/نهاية اليوم" (empty_periods)
-    nor "يوم عطلة كامل" (day_off) reserve anything here - both are
-    best-effort preferences in the solver (see solve_timetable) rather than
-    hard slot removals, so a teacher whose weekly load leaves no room to
-    fully honor one of them isn't blocked from generating at all; the
-    solver simply satisfies as much of the preference as it can and notes
-    the rest. max_gap_windows and start_from_beginning constrain
-    arrangement, not total count, so they never reduce this bound either.
+    Worst-case max usable weekly periods for this teacher.
+
+    "يوم عطلة كامل" (day_off) is a HARD rule in solve_timetable (never
+    violated - see the per-teacher constraint block there), so it genuinely
+    removes slots from this bound: a "specific" day/days off subtracts
+    exactly those days' own real period counts (day_period_count); a
+    "random" N-days-off subtracts the N SHORTEST days in the week (the best
+    case the solver could possibly pick, maximizing remaining capacity) -
+    this keeps the bound a true necessary condition regardless of which
+    days the solver ends up choosing, for the friendly feasibility
+    pre-check below to stay meaningful (a teacher failing even this
+    best-case bound is guaranteed infeasible, not just likely).
+
+    "تفريغ حصص في بداية/نهاية اليوم" (empty_periods) remains a best-effort
+    preference (not a hard slot removal), so it reserves nothing here - a
+    teacher whose weekly load leaves no room to fully honor it isn't
+    blocked from generating at all; the solver simply satisfies as much of
+    it as it can and notes the rest. max_gap_windows and
+    start_from_beginning constrain arrangement, not total count, so they
+    never reduce this bound either.
+
     Used for a fast, friendly feasibility pre-check (no teacher may need
-    more periods than literally exist in the week) before the full CP-SAT
-    model is built.
+    more periods than are actually available to them) before the full
+    CP-SAT model is built.
     """
-    return total_slots(data)
+    total = total_slots(data)
+    day_off = effective_constraints(data, teacher_name)["day_off"]
+    if not day_off["enabled"]:
+        return total
+    days = data["meta"]["days"]
+    if day_off["mode"] == "specific":
+        off_days = [d for d in dict.fromkeys(day_off.get("days") or []) if d in days]
+        return total - sum(day_period_count(data, d) for d in off_days)
+    n = max(1, min(int(day_off.get("count", 1) or 1), len(days)))
+    shortest_counts = sorted(day_period_count(data, d) for d in days)[:n]
+    return total - sum(shortest_counts)
 
 
 def validate_teacher_constraints(data):
@@ -1284,14 +1306,14 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     This does not change what is achievable, only how the unavoidable
     violations (if any) are distributed among teachers.
 
-    Priority between the two soft preferences: for any teacher who has
-    BOTH "يوم عطلة" (day_off) and "تفريغ حصص بداية/نهاية اليوم"
-    (empty_periods) enabled at once, and whose real weekly load makes it
-    impossible to satisfy both in full, day_off is always protected first -
-    the solver sacrifices empty_periods slots instead, never the other way
-    around (see DAY_OFF_WEIGHT / EMPTY_PERIODS_WEIGHT below). This holds
-    even when protecting the day off costs MORE total violated slots than
-    giving it up would.
+    "يوم عطلة" (day_off) is NOT one of the soft preferences above at all -
+    see the per-teacher constraint block below: it is enforced as a HARD
+    rule (busy[d, p] forced to exactly 0 for every period of a requested day
+    off), so it can never be sacrificed for anything, empty_periods
+    included. A teacher whose real weekly load doesn't fit in their
+    remaining (non-off) days makes the whole solve fail outright
+    (INFEASIBLE) instead of silently leaving some of that day scheduled -
+    see teacher_capacity for the friendly pre-check this feeds into.
 
     warm_start: optionally, a previous solve's section_sched (the same dict
     shape returned as this function's second return value) to seed the
@@ -1310,35 +1332,41 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         day*periods_per_day + period.
       - constraint_notes maps teacher name -> a list of one-paragraph Arabic
         notes, present only for teachers whose "تفريغ حصص" (empty_periods)
-        and/or "يوم عطلة" (day_off) preference could not be fully honored on
-        every day (see soft_violation_terms below) - meant to be shown at
-        the end of that teacher's PDF program.
+        preference could not be fully honored on every day (see
+        soft_violation_terms_emptyperiods below) - meant to be shown at the
+        end of that teacher's PDF program. "يوم عطلة" (day_off) never
+        contributes a note here - it's a hard rule now, never violated (see
+        above).
       - constraint_fulfillment maps teacher name -> {"requested": int,
         "achieved": int} - the total number of "should stay empty" slots
-        asked for (across every enabled empty_periods/day_off group) versus
-        how many of them actually ended up empty in the solved schedule.
-        Present for every teacher with at least one enabled empty_periods or
-        day_off group, WHETHER OR NOT any violation occurred (a fully
+        asked for (across every enabled empty_periods group - day_off is no
+        longer part of this, being a hard rule rather than a tracked soft
+        one) versus how many of them actually ended up empty in the solved
+        schedule. Present for every teacher with at least one enabled
+        empty_periods group, WHETHER OR NOT any violation occurred (a fully
         satisfied teacher still gets an entry with achieved == requested),
         so it can be turned into an exact per-teacher fulfillment percentage
         (see teacher_fulfillment_report) - unlike constraint_notes, which
-        only exists for teachers with at least one violation.
+        only exists for teachers with at least one violation. A teacher with
+        day_off enabled but no empty_periods gets no entry at all here -
+        teacher_fulfillment_report already treats a missing entry as 100%,
+        exactly right for a hard rule that always holds.
 
     data.get("priority_teachers"): an optional list of teacher names (set
     from the super-admin's panel, not the school supervisor's own UI - see
     routers/admin.py) who get a LIGHT tie-break preference in the objective
     below: purely a tenth-order tie-breaker among schedules that are
-    otherwise IDENTICAL on every criterion above (total violations, the
-    worst-teacher fairness term, and the day_off/empty_periods priority) -
-    it can never cause the solver to accept a worse outcome on any of those
-    for anyone, priority teacher included, only pick among ties in THEIR
-    favor. Not a strong override; a priority teacher whose real load makes
-    a preference genuinely unsatisfiable still gets the same fair
-    best-effort treatment as everyone else.
+    otherwise IDENTICAL on every criterion above (total violations and the
+    worst-teacher fairness term) - it can never cause the solver to accept a
+    worse outcome on any of those for anyone, priority teacher included,
+    only pick among ties in THEIR favor. Not a strong override; a priority
+    teacher whose real load makes a preference genuinely unsatisfiable still
+    gets the same fair best-effort treatment as everyone else.
 
     Raises RuntimeError if no feasible schedule exists (e.g. a teacher would
-    need more periods in a week than there are slots available - this is
-    still a hard failure; only empty_periods and day_off are best-effort).
+    need more periods in a week than there are slots available to them -
+    see teacher_capacity, which now also subtracts any hard day_off days -
+    this is a hard failure; only empty_periods is best-effort).
     Two SUBJECT-level constraints (as opposed to the per-teacher ones above)
     are likewise hard, not best-effort: "max_consecutive_per_day" (no run of
     more than N consecutive periods of a given subject in one day, for a
@@ -1427,11 +1455,11 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         progress(f"عدد المتطلبات: {len(requirements)} — إجمالي الحصص: "
                   f"{sum(r['periods'] for r in requirements)}")
 
-    # Quick feasibility pre-check: no teacher may need more periods than
-    # literally exist in the week. This is a pure sanity check now - it does
-    # NOT account for empty_periods/day_off, since both are best-effort
-    # preferences (see teacher_capacity) rather than hard slot reservations,
-    # so they can never make generation impossible on their own.
+    # Quick feasibility pre-check: no teacher may need more periods than are
+    # actually available to them (see teacher_capacity - this now excludes
+    # any hard day_off days, but NOT empty_periods, which remains a
+    # best-effort preference that can never make generation impossible on
+    # its own).
     per_teacher_total = {}
     for i, r in enumerate(requirements):
         if i in shadow_req_idxs or r["teacher"] is None:
@@ -1599,31 +1627,27 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     # "per_teacher" override), so datasets/teachers with nothing configured
     # are completely unaffected.
     #
-    # Both "تفريغ حصص في بداية/نهاية اليوم" (empty_periods) and "يوم عطلة
-    # كامل" (day_off) are SOFT preferences, not hard rules: violating one
-    # (leaving a requested period busy anyway) is heavily penalized in the
-    # objective below, so the solver always satisfies them fully whenever
-    # that's possible, but falls back to satisfying as much as it can —
-    # instead of the whole generation failing outright — when the teacher's
-    # actual weekly load leaves no room to keep every requested period (or
-    # the whole day off) empty. Each violation is tracked here so a note can
-    # be added to that teacher's PDF program explaining exactly which
-    # days/periods couldn't be freed.
-    # Every soft violation is tagged by its SOURCE ("day_off" vs
-    # "empty_periods"): when the same teacher has BOTH settings enabled and
-    # satisfying both in full turns out to be impossible, "يوم عطلة"
-    # (day_off) must be protected first, at the expense of "تفريغ حصص
-    # بداية/نهاية اليوم" (empty_periods) - never the other way around. This
-    # priority is enforced purely through objective weighting (see
-    # DAY_OFF_WEIGHT / EMPTY_PERIODS_WEIGHT right before model.Minimize()
-    # below), not by any hard rule here.
+    # "تفريغ حصص في بداية/نهاية اليوم" (empty_periods) is a SOFT preference,
+    # not a hard rule: violating it (leaving a requested period busy anyway)
+    # is heavily penalized in the objective below, so the solver always
+    # satisfies it fully whenever that's possible, but falls back to
+    # satisfying as much as it can — instead of the whole generation failing
+    # outright — when the teacher's actual weekly load leaves no room to
+    # keep every requested period empty. Each violation is tracked here so a
+    # note can be added to that teacher's PDF program explaining exactly
+    # which days/periods couldn't be freed.
+    #
+    # "يوم عطلة كامل" (day_off) is, by contrast, a HARD rule: busy[d, p] is
+    # forced to exactly 0 for every period of a requested day off, below -
+    # it can NEVER be silently violated the way empty_periods can. A teacher
+    # whose weekly load doesn't fit in the remaining (non-off) days makes
+    # the WHOLE solve fail outright (INFEASIBLE) instead, same as any other
+    # hard constraint - see teacher_capacity, which accounts for this when
+    # pre-checking feasibility in the friendly "overloaded" error above.
     soft_violation_terms_emptyperiods = []  # flat, every teacher, empty_periods source only
-    soft_violation_terms_dayoff = []        # flat, every teacher, day_off source only
-    soft_violation_terms_by_teacher = {}  # teacher -> [(var, "day_off"|"empty_periods"), ...],
+    soft_violation_terms_by_teacher = {}  # teacher -> [(var, "empty_periods"), ...],
                                            # tagged terms for the min-max fairness objective below
     empty_period_targets = {}  # teacher -> {"position", "count", "vars": {(d, p): var}}
-    day_off_targets = {}  # teacher -> {"mode": "specific", "days": {d_idx: {p: var}}}
-                           #         | {"mode": "random", "off_vars": [...], "viol_vars": {(d, p): var}, "count": n}
     for teacher in sorted(by_teacher.keys()):
         eff = effective_constraints(data, teacher)
         if not any(eff[k]["enabled"] for k in eff):
@@ -1716,49 +1740,31 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                     "day_config": day_config,
                 }
 
-        # 2) يوم/أيام عطلة أسبوعية (قيد ليّن أيضاً - نفس فلسفة القيد أعلاه):
-        #    إما أيام محددة بالاسم (واحد أو أكثر)، أو عدد أيام يختاره الحل
-        #    تلقائياً. يُحاول الحل دائماً تفريغ كل الأيام المطلوبة بالكامل،
-        #    لكن إن تعذّر ذلك بسبب النصاب الفعلي لا يفشل التوليد بالكامل -
-        #    تبقى بعض حصص تلك الأيام مجدولة عند الضرورة القصوى فقط، وتُسجَّل
-        #    هذه الحالات هنا لملاحظة لاحقة (لكل يوم على حدة).
+        # 2) يوم/أيام عطلة أسبوعية (قيد صلب - لا استثناء): إما أيام محددة
+        #    بالاسم (واحد أو أكثر)، أو عدد أيام يختاره الحل تلقائياً. في كلتا
+        #    الحالتين busy[d, p] يُقفَل على صفر فعلياً لكل حصص ذلك اليوم -
+        #    لا يمكن لأي متطلَّب من متطلَّبات هذا الأستاذ أن يُجدوَل هناك على
+        #    الإطلاق، فيُضطَر الحل لإعادة توزيع كل حصصه على الأيام الأخرى
+        #    المتاحة بدلاً من ذلك. إن لم تكفِ تلك الأيام الأخرى لاستيعاب كامل
+        #    نصابه الفعلي، يفشل التوليد بالكامل (INFEASIBLE) بدل ترك بعض حصص
+        #    يوم العطلة مجدولة كحل وسط - انظر teacher_capacity للتحقق المسبق
+        #    الودّي من هذه الحالة قبل بناء نموذج CP-SAT أصلاً.
         day_off = eff["day_off"]
         if day_off["enabled"]:
             if day_off["mode"] == "specific":
                 target_days = list(dict.fromkeys(day_off.get("days") or []))
                 target_days = [d for d in target_days if d in days]
-                by_day_vars = {}
                 for day_name in target_days:
                     d_idx = days.index(day_name)
-                    day_vars = {}
                     for p in range(periods_per_day):
-                        soft_violation_terms_dayoff.append(busy[d_idx, p])
-                        soft_violation_terms_by_teacher.setdefault(teacher, []).append(
-                            (busy[d_idx, p], "day_off"))
-                        day_vars[p] = busy[d_idx, p]
-                    by_day_vars[d_idx] = day_vars
-                if by_day_vars:
-                    day_off_targets[teacher] = {"mode": "specific", "days": by_day_vars}
+                        model.Add(busy[d_idx, p] == 0)
             else:  # "random" — الحل يختار عدداً محدداً من الأيام لتكون عطلة.
                 n_days = max(1, min(int(day_off.get("count", 1) or 1), len(days)))
                 off_vars = [model.NewBoolVar(f"dayoff_{teacher}_{d}") for d in range(len(days))]
                 model.Add(sum(off_vars) == n_days)
-                viol_vars = {}
                 for d in range(len(days)):
                     for p in range(periods_per_day):
-                        # v == 1 exactly when this slot is both busy AND on
-                        # one of the chosen off-days (standard boolean-AND
-                        # linearization); minimization pushes v down to that
-                        # true value whenever the objective allows it.
-                        v = model.NewBoolVar(f"dayoffviol_{teacher}_{d}_{p}")
-                        model.Add(v >= busy[d, p] + off_vars[d] - 1)
-                        soft_violation_terms_dayoff.append(v)
-                        soft_violation_terms_by_teacher.setdefault(teacher, []).append((v, "day_off"))
-                        viol_vars[d, p] = v
-                day_off_targets[teacher] = {
-                    "mode": "random", "off_vars": off_vars, "viol_vars": viol_vars,
-                    "count": n_days,
-                }
+                        model.Add(busy[d, p] == 0).OnlyEnforceIf(off_vars[d])
 
         # 3) حد أقصى لعدد "نوافذ" الفراغ في اليوم الواحد (أكثر من نافذة واحدة
         #    إن أردنا)، حيث تُحسب كل انتقال من "مشغول" إلى "فارغ" كبداية نافذة.
@@ -1805,51 +1811,35 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     # A violation of a soft "تفريغ حصص" (empty_periods) preference is
     # weighted far above any other penalty term here (see penalty_terms
     # above), so the solver only ever accepts one when there is truly no
-    # way to avoid it. A violation of a soft "يوم عطلة" (day_off) preference
-    # is weighted even higher - strictly higher than the combined weight of
-    # EVERY possible empty_periods violation added together (same "weight
-    # dominance" technique as MAX_VIOLATION_WEIGHT below) - so whenever a
-    # teacher has BOTH settings enabled and the two turn out to conflict
-    # (the teacher's real weekly load leaves no room to satisfy both in
-    # full), the solver always sacrifices empty_periods slots first and
-    # protects the requested day(s) off, never the other way around.
+    # way to avoid it. "يوم عطلة" (day_off) no longer has a weight here at
+    # all - it is a HARD rule now (see the per-teacher constraint block
+    # above), never a competing soft term, so there is nothing left to
+    # arbitrate between the two.
     EMPTY_PERIODS_WEIGHT = 5000
-    DAY_OFF_WEIGHT = EMPTY_PERIODS_WEIGHT * (len(soft_violation_terms_emptyperiods) + 1)
 
     objective_terms = list(penalty_terms)
     for v in soft_violation_terms_emptyperiods:
         objective_terms.append(v * EMPTY_PERIODS_WEIGHT)
-    for v in soft_violation_terms_dayoff:
-        objective_terms.append(v * DAY_OFF_WEIGHT)
 
     # Fairness (min-max) on top of the plain weighted total above: minimize
-    # the worst single teacher's violation LOAD too (see the docstring
+    # the worst single teacher's violation count too (see the docstring
     # above solve_timetable for the "spread vs. concentrate" problem this
-    # fixes) - measured in the SAME weighted units as above (not a raw
-    # violation count), so the day_off-over-empty_periods priority holds
-    # here as well: a teacher with several sacrificed empty_periods slots
-    # but a protected day off is correctly treated as better off than a
-    # teacher with a single violated day off, even though the former has
-    # more individual violated slots. MAX_VIOLATION_WEIGHT is set high
-    # enough that improving the worst case by even the smallest unit always
-    # outweighs any possible swing in the plain weighted total term, so it
-    # is effectively optimized first, with the plain total acting only as a
-    # tie-breaker among schedules sharing the same worst case.
-    if soft_violation_terms_emptyperiods or soft_violation_terms_dayoff:
-        weight_of = {"empty_periods": EMPTY_PERIODS_WEIGHT, "day_off": DAY_OFF_WEIGHT}
-        max_possible_weighted_total = (
-            len(soft_violation_terms_emptyperiods) * EMPTY_PERIODS_WEIGHT
-            + len(soft_violation_terms_dayoff) * DAY_OFF_WEIGHT
-        )
-        max_violation_var = model.NewIntVar(0, max_possible_weighted_total, "max_teacher_violation")
+    # fixes). MAX_VIOLATION_WEIGHT is set high enough that improving the
+    # worst case by even the smallest unit always outweighs any possible
+    # swing in the plain weighted total term, so it is effectively
+    # optimized first, with the plain total acting only as a tie-breaker
+    # among schedules sharing the same worst case.
+    if soft_violation_terms_emptyperiods:
+        max_possible_total = len(soft_violation_terms_emptyperiods) * EMPTY_PERIODS_WEIGHT
+        max_violation_var = model.NewIntVar(0, max_possible_total, "max_teacher_violation")
         for teacher, tagged_terms in soft_violation_terms_by_teacher.items():
-            terms_upper_bound = sum(weight_of[tag] for _, tag in tagged_terms)
+            terms_upper_bound = len(tagged_terms) * EMPTY_PERIODS_WEIGHT
             teacher_violation_load = model.NewIntVar(
                 0, terms_upper_bound, f"violation_load_{teacher}")
             model.Add(teacher_violation_load == sum(
-                var * weight_of[tag] for var, tag in tagged_terms))
+                var * EMPTY_PERIODS_WEIGHT for var, _tag in tagged_terms))
             model.Add(max_violation_var >= teacher_violation_load)
-        MAX_VIOLATION_WEIGHT = max_possible_weighted_total + 1
+        MAX_VIOLATION_WEIGHT = max_possible_total + 1
         objective_terms.append(max_violation_var * MAX_VIOLATION_WEIGHT)
 
     # أستاذ (أساتذة) مفضَّل من لوحة الأدمن الكبير (data["priority_teachers"])
@@ -1947,69 +1937,10 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                 + "، ".join(parts) + "."
             ))
 
-    for teacher, info in day_off_targets.items():
-        if info["mode"] == "specific":
-            violated_days = []  # [(day_name, violated_count), ...]
-            for d_idx, day_vars in info["days"].items():
-                violated = sum(1 for p in range(periods_per_day) if solver.Value(day_vars[p]))
-                if violated:
-                    violated_days.append((days[d_idx], violated))
-            total_target = len(info["days"]) * periods_per_day
-            total_violated = sum(
-                1 for day_vars in info["days"].values() for p in range(periods_per_day)
-                if solver.Value(day_vars[p])
-            )
-            _add_fulfillment(teacher, requested=total_target, achieved=total_target - total_violated)
-            if not violated_days:
-                continue
-            if len(info["days"]) == 1:
-                day_name, violated = violated_days[0]
-                _add_note(teacher, (
-                    f"ملاحظة: تعذّر تفريغ يوم {day_name} بالكامل كيوم عطلة لهذا الأستاذ "
-                    f"كما هو مطلوب، بسبب العدد الفعلي لحصصه الأسبوعية — بقيت {violated} حصة "
-                    f"مجدولة في ذلك اليوم من أصل {periods_per_day}."
-                ))
-            else:
-                requested = "، ".join(days[d] for d in info["days"])
-                details = "، ".join(f"{name} (بقيت {v} حصة)" for name, v in violated_days)
-                _add_note(teacher, (
-                    f"ملاحظة: طُلب لهذا الأستاذ {len(info['days'])} أيام عطلة أسبوعية محددة "
-                    f"({requested})، لكن تعذّر تفريغ بعضها بالكامل بسبب العدد الفعلي لحصصه "
-                    f"الأسبوعية: {details} (من أصل {periods_per_day} حصة/يوم)."
-                ))
-        else:  # "random"
-            chosen_days = [d for d in range(len(days)) if solver.Value(info["off_vars"][d])]
-            if not chosen_days:
-                continue
-            violated_days = []
-            for d_idx in chosen_days:
-                violated = sum(
-                    1 for p in range(periods_per_day) if solver.Value(info["viol_vars"][d_idx, p]))
-                if violated:
-                    violated_days.append((days[d_idx], violated))
-            total_target = len(chosen_days) * periods_per_day
-            total_violated = sum(
-                1 for d_idx in chosen_days for p in range(periods_per_day)
-                if solver.Value(info["viol_vars"][d_idx, p])
-            )
-            _add_fulfillment(teacher, requested=total_target, achieved=total_target - total_violated)
-            if not violated_days:
-                continue
-            if len(chosen_days) == 1:
-                day_name, violated = violated_days[0]
-                _add_note(teacher, (
-                    f"ملاحظة: اختار الجدول يوم {day_name} ليكون يوم عطلة هذا الأستاذ، لكن "
-                    f"تعذّر تفريغه بالكامل بسبب العدد الفعلي لحصصه الأسبوعية — بقيت {violated} "
-                    f"حصة مجدولة فيه من أصل {periods_per_day}."
-                ))
-            else:
-                chosen_names = "، ".join(days[d] for d in chosen_days)
-                details = "، ".join(f"{name} (بقيت {v} حصة)" for name, v in violated_days)
-                _add_note(teacher, (
-                    f"ملاحظة: اختار الجدول {len(chosen_days)} أيام لتكون أيام عطلة هذا الأستاذ "
-                    f"({chosen_names})، لكن تعذّر تفريغ بعضها بالكامل بسبب العدد الفعلي لحصصه "
-                    f"الأسبوعية: {details} (من أصل {periods_per_day} حصة/يوم)."
-                ))
+    # لا حاجة لأي تحقق أو ملاحظة بعد الحل بخصوص "يوم عطلة" بعد الآن - هو قيد
+    # صلب أعلاه (busy[d, p] == 0 دائماً لكل حصص ذلك اليوم)، فإما يتحقق تماماً
+    # في أي حل صالح يُعيده CP-SAT، أو يفشل التوليد بالكامل (INFEASIBLE) قبل
+    # الوصول لهذه النقطة أصلاً - لا احتمال وسط يستدعي ملاحظة.
 
     if progress:
         progress(f"تم إيجاد جدول صالح ({status_name}).")
@@ -2215,15 +2146,16 @@ def teacher_fulfillment_report(data, constraint_fulfillment):
     teacher_constraints_report) with how much of them the SOLVED schedule
     actually managed to honor (constraint_fulfillment, returned by
     solve_timetable) into one of three buckets per teacher:
-      - "كامل"   (100% - every requested empty/day-off slot was honored;
+      - "كامل"   (100% - every requested empty_periods slot was honored;
                   this also covers a teacher whose only active constraints
-                  are the hard ones, max_gap_windows/start_from_beginning,
-                  which are never tracked in constraint_fulfillment at all
-                  since they either hold completely or the solve fails
-                  outright - no entry there is treated as 100%).
-      - "جزئي"   (something between 0% and 100% was honored).
-      - "معدوم"  (0% - every requested slot stayed busy / every requested
-                  day off remained fully scheduled).
+                  are the hard ones (day_off, max_gap_windows,
+                  start_from_beginning), which are never tracked in
+                  constraint_fulfillment at all since they either hold
+                  completely or the solve fails outright - no entry there
+                  is treated as 100%).
+      - "جزئي"   (something between 0% and 100% of empty_periods was
+                  honored).
+      - "معدوم"  (0% - every requested empty_periods slot stayed busy).
     Each row also carries the exact percentage, for a precise per-teacher
     figure alongside the three-bucket breakdown. Used for the "تقرير نسبة
     تحقق رغبات الأساتذة" PDF (see pdf_gen.py) - this is deliberately
