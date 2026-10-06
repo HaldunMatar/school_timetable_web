@@ -346,7 +346,15 @@ DEFAULT_TEACHER_CONSTRAINTS = {
         "per_day": {},
     },
     "day_off": {"enabled": False, "mode": "specific", "days": [], "count": 1},
+    # "max_gap_windows": caps how many SEPARATE free-time blocks a day may
+    # have (e.g. busy,empty,busy,empty,busy = 2 blocks/windows), regardless
+    # of how long each one is. "max_consecutive_empty" below is the
+    # complementary dimension - it caps how LONG any single such block may
+    # be (e.g. "max": 2 forbids 3+ empty periods back to back), regardless
+    # of how many blocks there are. Both are independent HARD rules (see
+    # solve_timetable) - a teacher can have either, both, or neither.
     "max_gap_windows": {"enabled": False, "max": 1},
+    "max_consecutive_empty": {"enabled": False, "max": 2},
     "start_from_beginning": {"enabled": False},
 }
 
@@ -690,8 +698,8 @@ def teacher_capacity(data, teacher_name):
     preference (not a hard slot removal), so it reserves nothing here - a
     teacher whose weekly load leaves no room to fully honor it isn't
     blocked from generating at all; the solver simply satisfies as much of
-    it as it can and notes the rest. max_gap_windows and
-    start_from_beginning constrain arrangement, not total count, so they
+    it as it can and notes the rest. max_gap_windows, max_consecutive_empty,
+    and start_from_beginning constrain arrangement, not total count, so they
     never reduce this bound either.
 
     Used for a fast, friendly feasibility pre-check (no teacher may need
@@ -1787,7 +1795,42 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                 if gap_vars:
                     model.Add(sum(gap_vars) <= max_gaps)
 
-        # 4) إلزام أن تبدأ حصص اليوم من أول حصة (لا فراغ في البداية) في أي
+        # 4) حد أقصى لعدد الحصص الفارغة المتتالية (المتتابعة) في اليوم
+        #    الواحد - البُعد المكمِّل للقيد "3" أعلاه: ذاك يحدّ عدد نوافذ
+        #    الفراغ المنفصلة بغضّ النظر عن طول كل واحدة منها، وهذا يحدّ طول
+        #    أي نافذة واحدة بغضّ النظر عن عددها (قيد صلب أيضاً، لا استثناء:
+        #    مثلاً "max": 2 يمنع 3 حصص فارغة متتالية فأكثر، لكن لا يمانع في
+        #    وجود عدة نوافذ منفصلة كل منها حصتان). عبر نفس حيلة "النافذة
+        #    المنزلقة" المستخدمة لقيد المادة max_consecutive_per_day: كل
+        #    نافذة بحجم max+1 حصة متتالية يجب أن تحوي حصة واحدة مشغولة على
+        #    الأقل، فيستحيل رياضياً أن يتكوَّن أي امتداد فارغ بطول max+1 أو
+        #    أكثر.
+        #
+        #    مُستثنى تماماً: يوم لا حصص للأستاذ فيه على الإطلاق (has_any
+        #    أدناه، بنفس منطق start_from_beginning تحت) - سواء كان ذلك بسبب
+        #    "يوم عطلة" (فارغ بالكامل عمداً وبقيد صلب منفصل، انظر فوق) أو
+        #    لمجرد أن نصابه الفعلي لا يستدعي حضوره ذلك اليوم أصلاً. القيد
+        #    يعني "لا تترك فجوة طويلة ضمن يوم عمل فعلي"، لا "يجب أن يحضر كل
+        #    يوم" - فرض الشرط على يوم فارغ بالكامل عمداً كان سيجعل أي يوم
+        #    عطلة (أطول امتداد فارغ ممكن) يتعارض معه حتماً دائماً.
+        mce_cfg = eff["max_consecutive_empty"]
+        if mce_cfg["enabled"]:
+            max_consec_empty = max(0, int(mce_cfg["max"] or 0))
+            window = max_consec_empty + 1
+            for d in range(len(days)):
+                real_count = day_counts[d]
+                if window > real_count:
+                    continue
+                has_any = model.NewBoolVar(f"mce_hasany_{teacher}_{d}")
+                day_sum = sum(busy[d, p] for p in range(real_count))
+                model.Add(day_sum >= 1).OnlyEnforceIf(has_any)
+                model.Add(day_sum == 0).OnlyEnforceIf(has_any.Not())
+                for start_p in range(0, real_count - window + 1):
+                    model.Add(
+                        sum(busy[d, p] for p in range(start_p, start_p + window)) >= 1
+                    ).OnlyEnforceIf(has_any)
+
+        # 5) إلزام أن تبدأ حصص اليوم من أول حصة (لا فراغ في البداية) في أي
         #    يوم لدى الأستاذ فيه حصص أصلاً.
         sfb = eff["start_from_beginning"]
         if sfb["enabled"]:
@@ -2022,6 +2065,7 @@ CONSTRAINT_TITLES = {
     "empty_periods": "تفريغ حصص في بداية/نهاية اليوم",
     "day_off": "يوم عطلة أسبوعي",
     "max_gap_windows": "الحد الأقصى لعدد نوافذ الفراغ في اليوم",
+    "max_consecutive_empty": "الحد الأقصى لعدد الحصص الفارغة المتتالية في اليوم",
     "start_from_beginning": "إلزام البدء من أول حصة في اليوم",
 }
 
@@ -2081,6 +2125,10 @@ def _describe_constraint_detail(key, group):
         m = int(group.get("max", 1) or 0)
         unit = "نافذة" if m == 1 else "نوافذ"
         return f"حد أقصى {m} {unit} فراغ في اليوم الواحد"
+    if key == "max_consecutive_empty":
+        m = int(group.get("max", 2) or 0)
+        unit = "حصة فارغة متتالية" if m == 1 else "حصص فارغة متتالية"
+        return f"حد أقصى {m} {unit} في اليوم الواحد"
     if key == "start_from_beginning":
         return "إلزام البدء من أول حصة في اليوم (بلا فراغ في البداية)"
     return ""
@@ -2244,6 +2292,9 @@ def _constraint_difficulty(key, group):
     if key == "max_gap_windows":
         m = int(group.get("max", 1) or 0)
         return 1.0 + max(0, 2 - m) * 0.5
+    if key == "max_consecutive_empty":
+        m = int(group.get("max", 2) or 0)
+        return 1.0 + max(0, 3 - m) * 0.5
     if key == "start_from_beginning":
         return 1.0
     return 1.0

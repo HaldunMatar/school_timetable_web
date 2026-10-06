@@ -92,6 +92,12 @@
     <input type="number" name="max" value="{{ group.max or 1 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
   </div>
 
+{% elif key == "max_consecutive_empty" %}
+  <div class="subrow">
+    <span class="muted" style="font-size: 12px;">أقصى عدد حصص فارغة متتالية في اليوم:</span>
+    <input type="number" name="max" value="{{ group.max or 2 }}" min="0" max="10" style="width: 60px;" {% if ro %}disabled{% endif %}>
+  </div>
+
 {% elif key == "start_from_beginning" %}
   <p class="muted" style="font-size: 12px; margin: 4px 0 0 0;">لا إعدادات إضافية — إما مفعَّل أو لا.</p>
 {% endif %}

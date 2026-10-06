@@ -21,7 +21,10 @@ TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 router = APIRouter(prefix="/constraints", tags=["constraints"])
 
-CONSTRAINT_KEYS = ["empty_periods", "day_off", "max_gap_windows", "start_from_beginning"]
+CONSTRAINT_KEYS = [
+    "empty_periods", "day_off", "max_gap_windows", "max_consecutive_empty",
+    "start_from_beginning",
+]
 CONSTRAINT_TITLES = scheduler.CONSTRAINT_TITLES  # {"empty_periods": "...", ...}
 
 
@@ -190,6 +193,8 @@ def _parse_group_from_form(key: str, form: dict, days: list[str]) -> dict:
         }
     if key == "max_gap_windows":
         return {"enabled": _b("enabled"), "max": _int("max", 1)}
+    if key == "max_consecutive_empty":
+        return {"enabled": _b("enabled"), "max": _int("max", 2)}
     if key == "start_from_beginning":
         return {"enabled": _b("enabled")}
     raise HTTPException(400, f"مفتاح قيد غير معروف: {key}")
