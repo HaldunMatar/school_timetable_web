@@ -1774,61 +1774,43 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                     for p in range(periods_per_day):
                         model.Add(busy[d, p] == 0).OnlyEnforceIf(off_vars[d])
 
-        # 3) حد أقصى لعدد "نوافذ" الفراغ في اليوم الواحد (أكثر من نافذة واحدة
-        #    إن أردنا)، حيث تُحسب كل انتقال من "مشغول" إلى "فارغ" كبداية نافذة.
+        # 3+4) قيدا الفجوات (عدد النوافذ / طول النافذة): "فجوة" تعني فراغاً
+        #    بين حصتين فقط - الفراغ قبل أول حصة في اليوم أو بعد آخر حصة ليس
+        #    فجوة (هذا "تفريغ بداية/نهاية اليوم" وله قيد منفصل). لذلك
+        #    يُعَدّ/يُقيَّد فقط ما يقع بين مشغول سابق ومشغول لاحق في نفس
+        #    اليوم، وتبقى الأيام الفارغة بالكامل (يوم عطلة) مستثناة تلقائياً.
         gap_cfg = eff["max_gap_windows"]
-        if gap_cfg["enabled"]:
-            max_gaps = max(0, int(gap_cfg["max"] or 0))
-            for d in range(len(days)):
-                gap_vars = []
-                # يقتصر العدّ على حصص هذا اليوم الفعلية (day_counts[d]) لا
-                # periods_per_day - وإلا لَعُدَّت نهاية يوم أقصر (آخر حصة
-                # حقيقية مشغولة تليها حصة معطَّلة دائماً فارغة) نافذة فراغ
-                # وهمية، فيصبح قيد صلب (hard constraint) هنا مرفوضاً بلا سبب
-                # حقيقي ليوم لا يملك أي فجوة فعلية على الإطلاق.
-                for p in range(1, day_counts[d]):
-                    g = model.NewBoolVar(f"gap_{teacher}_{d}_{p}")
-                    prev_b, cur_b = busy[d, p - 1], busy[d, p]
-                    model.AddBoolAnd([prev_b, cur_b.Not()]).OnlyEnforceIf(g)
-                    model.AddBoolOr([prev_b.Not(), cur_b]).OnlyEnforceIf(g.Not())
-                    gap_vars.append(g)
-                if gap_vars:
-                    model.Add(sum(gap_vars) <= max_gaps)
-
-        # 4) حد أقصى لعدد الحصص الفارغة المتتالية (المتتابعة) في اليوم
-        #    الواحد - البُعد المكمِّل للقيد "3" أعلاه: ذاك يحدّ عدد نوافذ
-        #    الفراغ المنفصلة بغضّ النظر عن طول كل واحدة منها، وهذا يحدّ طول
-        #    أي نافذة واحدة بغضّ النظر عن عددها (قيد صلب أيضاً، لا استثناء:
-        #    مثلاً "max": 2 يمنع 3 حصص فارغة متتالية فأكثر، لكن لا يمانع في
-        #    وجود عدة نوافذ منفصلة كل منها حصتان). عبر نفس حيلة "النافذة
-        #    المنزلقة" المستخدمة لقيد المادة max_consecutive_per_day: كل
-        #    نافذة بحجم max+1 حصة متتالية يجب أن تحوي حصة واحدة مشغولة على
-        #    الأقل، فيستحيل رياضياً أن يتكوَّن أي امتداد فارغ بطول max+1 أو
-        #    أكثر.
-        #
-        #    مُستثنى تماماً: يوم لا حصص للأستاذ فيه على الإطلاق (has_any
-        #    أدناه، بنفس منطق start_from_beginning تحت) - سواء كان ذلك بسبب
-        #    "يوم عطلة" (فارغ بالكامل عمداً وبقيد صلب منفصل، انظر فوق) أو
-        #    لمجرد أن نصابه الفعلي لا يستدعي حضوره ذلك اليوم أصلاً. القيد
-        #    يعني "لا تترك فجوة طويلة ضمن يوم عمل فعلي"، لا "يجب أن يحضر كل
-        #    يوم" - فرض الشرط على يوم فارغ بالكامل عمداً كان سيجعل أي يوم
-        #    عطلة (أطول امتداد فارغ ممكن) يتعارض معه حتماً دائماً.
         mce_cfg = eff["max_consecutive_empty"]
-        if mce_cfg["enabled"]:
-            max_consec_empty = max(0, int(mce_cfg["max"] or 0))
-            window = max_consec_empty + 1
+        if gap_cfg["enabled"] or mce_cfg["enabled"]:
             for d in range(len(days)):
-                real_count = day_counts[d]
-                if window > real_count:
-                    continue
-                has_any = model.NewBoolVar(f"mce_hasany_{teacher}_{d}")
-                day_sum = sum(busy[d, p] for p in range(real_count))
-                model.Add(day_sum >= 1).OnlyEnforceIf(has_any)
-                model.Add(day_sum == 0).OnlyEnforceIf(has_any.Not())
-                for start_p in range(0, real_count - window + 1):
-                    model.Add(
-                        sum(busy[d, p] for p in range(start_p, start_p + window)) >= 1
-                    ).OnlyEnforceIf(has_any)
+                n = day_counts[d]
+                pre, suf = {}, {}
+                for p in range(n):
+                    pre[p] = model.NewBoolVar(f"pre_{teacher}_{d}_{p}")
+                    suf[p] = model.NewBoolVar(f"suf_{teacher}_{d}_{p}")
+                    model.AddMaxEquality(
+                        pre[p], [busy[d, q] for q in range(0, p + 1)])
+                    model.AddMaxEquality(
+                        suf[p], [busy[d, q] for q in range(p, n)])
+                if gap_cfg["enabled"]:
+                    max_gaps = max(0, int(gap_cfg["max"] or 0))
+                    gap_vars = []
+                    for p in range(1, n):
+                        g = model.NewBoolVar(f"gap_{teacher}_{d}_{p}")
+                        prev_b, cur_b = busy[d, p - 1], busy[d, p]
+                        model.AddBoolAnd([prev_b, cur_b.Not(), suf[p]]).OnlyEnforceIf(g)
+                        model.AddBoolOr(
+                            [prev_b.Not(), cur_b, suf[p].Not()]).OnlyEnforceIf(g.Not())
+                        gap_vars.append(g)
+                    if gap_vars:
+                        model.Add(sum(gap_vars) <= max_gaps)
+                if mce_cfg["enabled"]:
+                    window = max(0, int(mce_cfg["max"] or 0)) + 1
+                    for a in range(1, n - window):
+                        model.Add(
+                            sum(busy[d, q] for q in range(a, a + window))
+                            + (1 - pre[a - 1]) + (1 - suf[a + window]) >= 1
+                        )
 
         # 5) إلزام أن تبدأ حصص اليوم من أول حصة (لا فراغ في البداية) في أي
         #    يوم لدى الأستاذ فيه حصص أصلاً.

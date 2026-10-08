@@ -58,66 +58,54 @@ def test_update_default_max_consecutive_empty(client, store):
 
 # --------------------------------------------------------------- CP-SAT solve
 
-@pytest.mark.slow
-def test_max_consecutive_empty_forbids_long_empty_runs():
-    """الاختبار الحاسم: أستاذ A يحتاج حصتين فقط من أصل 5 حصص يوم واحد - بلا
-    أي قيد، الحل يترك المطلوب في النهاية (ثبت هذا تجريبياً)، تاركاً 3 حصص
-    فارغة متتالية في البداية. مع max_consecutive_empty=1، يجب ألا يتجاوز أي
-    امتداد فراغ حصة واحدة متتالية على الإطلاق."""
-    data = {
-        "meta": {
-            "days": ["يوم1"], "periods_per_day": 5,
-            "grade_order": ["ع1"], "grade_labels": {"ع1": "سابع"},
-            "nisab_reference": 8,
-        },
-        "sections": {"ع1": 1},
-        "teachers": ["A"],
-        "subjects": [_subject("م1", 2, "A")],
-        "scheduling_constraints": {
-            "defaults": dict(scheduler.DEFAULT_TEACHER_CONSTRAINTS),
-            "per_teacher": {"A": {"max_consecutive_empty": {"enabled": True, "max": 1}}},
+def _forced_gap_data(max_empty):
+    """يوم واحد بـ5 حصص: مادة بلا أستاذ تشغل الحصص 2،3،4 (فهرس 1..3) ثابتة،
+    فيُجبَر الأستاذ A (حصتان) على الحصتين 0 و4 - أي فجوة داخلية بطول 3."""
+    fixed = {
+        "name": "ثابتة", "category": "تربوية", "periods": {"ع1": 3},
+        "names": [], "manual_assignments": [],
+        "fixed_no_teacher_slots": [
+            {"track": "ع1", "sections": "all", "period_index": i} for i in (2, 3, 4)],
+        "constraints": {
+            "max_consecutive_per_day": {"enabled": False, "max": 2},
+            "max_daily_per_section": {"enabled": False, "max": 2},
         },
     }
-    _status, section_sched, _notes, _fulfillment = scheduler.solve_timetable(
-        data, max_time_in_seconds=10, num_workers=2,
-    )
-    sched = section_sched["ع1|1"]
-    run = worst = 0
-    for c in sched:
-        if c is None:
-            run += 1
-            worst = max(worst, run)
-        else:
-            run = 0
-    assert worst <= 1, (
-        f"أطول امتداد فراغ متتالٍ هو {worst} - يتجاوز الحد الأقصى المطلوب (1): {sched}"
-    )
+    return {
+        "meta": {"days": ["يوم1"], "periods_per_day": 5, "grade_order": ["ع1"],
+                 "grade_labels": {"ع1": "سابع"}, "nisab_reference": 8},
+        "sections": {"ع1": 1},
+        "teachers": ["A"],
+        "subjects": [_subject("م1", 2, "A"), fixed],
+        "scheduling_constraints": {
+            "defaults": dict(scheduler.DEFAULT_TEACHER_CONSTRAINTS),
+            "per_teacher": {"A": {"max_consecutive_empty": {"enabled": True, "max": max_empty}}},
+        },
+    }
 
 
 @pytest.mark.slow
-def test_max_consecutive_empty_overload_raises_friendly_error():
-    """طلب مستحيل رياضياً: max=0 (بلا أي حصة فارغة متتالية مسموحة إطلاقاً)
-    يعني عملياً "كل حصص اليوم يجب أن تكون مشغولة" (نافذة بحجم 1: كل حصة
-    بمفردها يجب أن تحوي حصة مشغولة) - لكن الأستاذ A يحتاج حصة واحدة فقط من
-    أصل 3 حصص ذلك اليوم، فيستحيل تحقيق الشرطين معاً (مشغول بالكامل كل يوم
-    له فيه حصص، مع حصة واحدة فقط مطلوبة). يجب أن يفشل التوليد (INFEASIBLE)،
-    لا أن يتجاوز الحد بصمت."""
-    data = {
-        "meta": {
-            "days": ["يوم1"], "periods_per_day": 3,
-            "grade_order": ["ع1"], "grade_labels": {"ع1": "سابع"},
-            "nisab_reference": 8,
-        },
-        "sections": {"ع1": 1},
-        "teachers": ["A"],
-        "subjects": [_subject("م1", 1, "A")],
-        "scheduling_constraints": {
-            "defaults": dict(scheduler.DEFAULT_TEACHER_CONSTRAINTS),
-            "per_teacher": {"A": {"max_consecutive_empty": {"enabled": True, "max": 0}}},
-        },
-    }
+def test_max_consecutive_empty_forbids_long_internal_gap():
     with pytest.raises(RuntimeError):
-        scheduler.solve_timetable(data, max_time_in_seconds=10, num_workers=2)
+        scheduler.solve_timetable(_forced_gap_data(1), max_time_in_seconds=10, num_workers=2)
+
+
+@pytest.mark.slow
+def test_max_consecutive_empty_allows_gap_within_limit():
+    _s, sched, _n, _f = scheduler.solve_timetable(
+        _forced_gap_data(3), max_time_in_seconds=10, num_workers=2)
+    assert sched["ع1|1"][0] and sched["ع1|1"][4]
+
+
+@pytest.mark.slow
+def test_leading_and_trailing_empty_are_not_gaps():
+    """الفراغ قبل أول حصة/بعد آخرها ليس فجوة: حصتان من 5 مع max=1 ممكنتان
+    (مثلاً متتاليتان)، ولا تُرفض بسبب فراغ البداية/النهاية."""
+    data = _forced_gap_data(1)
+    data["subjects"] = [_subject("م1", 2, "A")]
+    data["scheduling_constraints"]["per_teacher"]["A"]["max_gap_windows"] = {
+        "enabled": True, "max": 1}
+    scheduler.solve_timetable(data, max_time_in_seconds=10, num_workers=2)
 
 
 @pytest.mark.slow
