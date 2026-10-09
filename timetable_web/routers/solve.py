@@ -111,7 +111,7 @@ def _run_full_solve(store, max_time_in_seconds: int = DEFAULT_TIME_LIMIT):
         )
         store.generated_files = _relative(paths)
         _set_status(store, "done", f"تم بنجاح — {len(paths)} ملفات ({status_name})", 100)
-        store.log(f"تم توليد {len(paths)} ملفات PDF")
+        store.log(f"تم توليد {len(paths)} ملفات (PDF + Excel)")
 
     except Exception as exc:
         _set_status(store, "failed", f"فشل التوليد: {exc}", 100)
@@ -210,4 +210,8 @@ def download(filename: str):
     target = (OUTPUT_DIR / filename).resolve()
     if not str(target).startswith(str(OUTPUT_DIR.resolve())) or not target.is_file():
         raise HTTPException(404, "ملف غير موجود")
-    return FileResponse(target, media_type="application/pdf", filename=filename)
+    media = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if target.suffix.lower() == ".xlsx" else "application/pdf"
+    )
+    return FileResponse(target, media_type=media, filename=filename)

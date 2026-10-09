@@ -766,7 +766,12 @@ def generate_all_pdfs(data, section_sched, out_dir, progress=None, constraint_no
         if progress:
             progress(f"تم إنشاء: {pdf_path.name}")
 
-    return {name: str(pdf_path) for name, (_, pdf_path) in jobs.items()}
+    result = {name: str(pdf_path) for name, (_, pdf_path) in jobs.items()}
+    from . import xlsx_gen
+    result.update(xlsx_gen.generate_xlsx_files(data, section_sched, out_dir))
+    if progress:
+        progress("تم إنشاء ملفات Excel (الشعب والأساتذة).")
+    return result
 
 
 def generate_constraints_report_pdf(data, out_dir, progress=None):
