@@ -1842,6 +1842,27 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     # arbitrate between the two.
     EMPTY_PERIODS_WEIGHT = 5000
 
+    # أساتذة "غير مفضَّلين" (data["deprioritized_teachers"]، من لوحة الأدمن):
+    # رغباتهم (تفريغ حصص) تُخرَج كلياً من الهدف الأساسي وعدالته أدناه، وتُضاف
+    # كأدنى طبقة في الهدف النهائي - فيُضحَّى بها أولاً دائماً، ولا يجوز أن
+    # تكلّف مفضَّلاً أو عادياً أي مخالفة إضافية. القيود الصلبة تبقى كما هي.
+    prioritized_set = set(data.get("priority_teachers") or [])
+    low_teachers = {
+        t for t in (data.get("deprioritized_teachers") or [])
+        if t in by_teacher and t not in prioritized_set
+    }
+    low_violation_vars = [
+        var for t in low_teachers
+        for var, _tag in soft_violation_terms_by_teacher.get(t, [])
+    ]
+    soft_violation_terms_by_teacher = {
+        t: terms for t, terms in soft_violation_terms_by_teacher.items()
+        if t not in low_teachers
+    }
+    soft_violation_terms_emptyperiods = [
+        var for terms in soft_violation_terms_by_teacher.values() for var, _tag in terms
+    ]
+
     objective_terms = list(penalty_terms)
     for v in soft_violation_terms_emptyperiods:
         objective_terms.append(v * EMPTY_PERIODS_WEIGHT)
@@ -1880,11 +1901,13 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         for teacher in priority_teachers
         for var, _tag in soft_violation_terms_by_teacher.get(teacher, [])
     ]
+    main_objective = sum(objective_terms)
     if priority_violation_vars:
         SCALE = len(priority_violation_vars) + 1
-        model.Minimize(sum(objective_terms) * SCALE + sum(priority_violation_vars))
-    else:
-        model.Minimize(sum(objective_terms))
+        main_objective = main_objective * SCALE + sum(priority_violation_vars)
+    if low_violation_vars:
+        main_objective = main_objective * (len(low_violation_vars) + 1) + sum(low_violation_vars)
+    model.Minimize(main_objective)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_time_in_seconds

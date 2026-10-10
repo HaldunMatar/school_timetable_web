@@ -129,7 +129,7 @@
               </div>
             </dialog>
 
-            {% set all_teachers, current_priority = teachers_and_priority[u.username] %}
+            {% set all_teachers, current_priority, current_low = teachers_and_priority[u.username] %}
             <button class="small" type="button" onclick="document.getElementById('dlg-prio-{{ loop.index }}').showModal()">⭐ أستاذ مفضَّل</button>
             <dialog id="dlg-prio-{{ loop.index }}" class="modal">
               <form method="post" action="/admin/users/{{ u.username }}/priority-teachers">
@@ -144,6 +144,35 @@
                       <label style="display: flex; align-items: center; gap: 8px;">
                         <input type="checkbox" name="priority_teachers" value="{{ t }}"
                                {% if t in current_priority %}checked{% endif %}>
+                        {{ t }}
+                      </label>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="muted">لا يوجد أساتذة في ملف بيانات هذه المدرسة بعد.</p>
+                {% endif %}
+                <div class="modal-actions">
+                  <button type="button" onclick="this.closest('dialog').close()">إلغاء</button>
+                  <button type="submit" class="primary">حفظ</button>
+                </div>
+              </form>
+            </dialog>
+
+            <button class="small" type="button" onclick="document.getElementById('dlg-low-{{ loop.index }}').showModal()">⬇ أستاذ غير مفضَّل</button>
+            <dialog id="dlg-low-{{ loop.index }}" class="modal">
+              <form method="post" action="/admin/users/{{ u.username }}/deprioritized-teachers">
+                <h3>أساتذة غير مفضَّلين: {{ u.username }}</h3>
+                <p class="muted" style="font-size: 12px;">
+                  الترتيب عند تعذّر تحقيق كل الرغبات: المفضَّلون ثم العاديون ثم غير المفضَّلين.
+                  رغبات (تفريغ حصص) غير المفضَّلين تُحاوَل أخيراً ويُضحّى بها أولاً، دون أن تكلّف مفضَّلاً أو عادياً أي مخالفة.
+                  القيود الصلبة (يوم عطلة، النوافذ...) تبقى مطبَّقة عليهم كما هي. المفضَّلون لا يظهرون هنا.
+                </p>
+                {% if all_teachers %}
+                  <div class="stack" style="gap: 6px; max-height: 240px; overflow-y: auto;">
+                    {% for t in all_teachers if t not in current_priority %}
+                      <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" name="deprioritized_teachers" value="{{ t }}"
+                               {% if t in current_low %}checked{% endif %}>
                         {{ t }}
                       </label>
                     {% endfor %}
