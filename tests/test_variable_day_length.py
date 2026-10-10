@@ -214,4 +214,3 @@ def test_empty_periods_end_targets_the_days_real_last_period():
     assert sched[0] is not None and sched[0]["teacher"] == "B", sched
     assert sched[1] is not None and sched[1]["teacher"] == "C", sched
     assert sched[2] is None and sched[3] is None  # الحصتان المعطَّلتان
-    assert fulfillment["B"]["achieved"] == fulfillment["B"]["requested"] == 1

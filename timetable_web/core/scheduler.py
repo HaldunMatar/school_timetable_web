@@ -679,6 +679,29 @@ def effective_constraints(data, teacher_name):
     return result
 
 
+def empty_period_slots(data, ep):
+    """{فهرس اليوم: مجموعة فهارس الحصص} التي يطلب "تفريغ حصص" إبقاءها فارغة -
+    نفس منطق solve_timetable (يُحصَر بعدد حصص اليوم الفعلي)."""
+    days = data["meta"]["days"]
+    specific = ep.get("days_mode") == "specific"
+    per_day_cfg = ep.get("per_day") or {}
+    names = ([d for d in dict.fromkeys(ep.get("days") or []) if d in days]
+             if specific else list(days))
+    out = {}
+    for name in names:
+        d = days.index(name)
+        ov = per_day_cfg.get(name) if specific else None
+        start_cfg = (ov or {}).get("start", ep["start"])
+        end_cfg = (ov or {}).get("end", ep["end"])
+        real = day_period_count(data, name)
+        sc = max(0, min(int(start_cfg.get("count") or 0), real)) if start_cfg.get("enabled") else 0
+        ec = max(0, min(int(end_cfg.get("count") or 0), real)) if end_cfg.get("enabled") else 0
+        slots = set(range(sc)) | set(range(real - ec, real)) if ec else set(range(sc))
+        if slots:
+            out[d] = slots
+    return out
+
+
 def teacher_capacity(data, teacher_name):
     """
     Worst-case max usable weekly periods for this teacher.
@@ -707,12 +730,23 @@ def teacher_capacity(data, teacher_name):
     CP-SAT model is built.
     """
     total = total_slots(data)
-    day_off = effective_constraints(data, teacher_name)["day_off"]
+    eff = effective_constraints(data, teacher_name)
+    day_off = eff["day_off"]
+    days = data["meta"]["days"]
+    off_days = []
+    if day_off["enabled"] and day_off["mode"] == "specific":
+        off_days = [d for d in dict.fromkeys(day_off.get("days") or []) if d in days]
+    # "تفريغ حصص" صلب الآن: يخصم حصصه المستهدفة في الأيام غير المستثناة أصلاً
+    # بيوم عطلة محدد (بلا ازدواج). يُتجاهَل مع يوم عطلة عشوائي (أفضل حالة).
+    reserved = 0
+    ep = eff["empty_periods"]
+    if ep["enabled"] and not (day_off["enabled"] and day_off["mode"] != "specific"):
+        reserved = sum(len(v) for d, v in empty_period_slots(data, ep).items()
+                       if days[d] not in off_days)
+    total -= reserved
     if not day_off["enabled"]:
         return total
-    days = data["meta"]["days"]
     if day_off["mode"] == "specific":
-        off_days = [d for d in dict.fromkeys(day_off.get("days") or []) if d in days]
         return total - sum(day_period_count(data, d) for d in off_days)
     n = max(1, min(int(day_off.get("count", 1) or 1), len(days)))
     shortest_counts = sorted(day_period_count(data, d) for d in days)[:n]
@@ -1655,7 +1689,7 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     soft_violation_terms_emptyperiods = []  # flat, every teacher, empty_periods source only
     soft_violation_terms_by_teacher = {}  # teacher -> [(var, "empty_periods"), ...],
                                            # tagged terms for the min-max fairness objective below
-    empty_period_targets = {}  # teacher -> {"position", "count", "vars": {(d, p): var}}
+    gap_targets = {}  # teacher -> {d: (gap_vars, max_gaps)} لتقرير تجاوز نوافذ الفراغ
     for teacher in sorted(by_teacher.keys()):
         eff = effective_constraints(data, teacher)
         if not any(eff[k]["enabled"] for k in eff):
@@ -1692,8 +1726,6 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
             else:  # "all"
                 target_day_names = list(days)
 
-            target_vars = {}
-            day_config = {}
             for day_name in target_day_names:
                 d = days.index(day_name)
                 # في نمط "أيام محددة" لهذا اليوم عدده الخاص إن وُجد
@@ -1731,22 +1763,9 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                     targeted_periods.update(range(start_count))
                 if end_count:
                     targeted_periods.update(range(real_count - end_count, real_count))
+                # قيد صلب: هذه الحصص تبقى فارغة دائماً، وإلا يفشل التوليد.
                 for p in sorted(targeted_periods):
-                    soft_violation_terms_emptyperiods.append(busy[d, p])
-                    soft_violation_terms_by_teacher.setdefault(teacher, []).append(
-                        (busy[d, p], "empty_periods"))
-                    target_vars[d, p] = busy[d, p]
-                day_config[d] = {
-                    "start_enabled": bool(start_count),
-                    "start_count": start_count,
-                    "end_enabled": bool(end_count),
-                    "end_count": end_count,
-                }
-            if target_vars:
-                empty_period_targets[teacher] = {
-                    "vars": target_vars,
-                    "day_config": day_config,
-                }
+                    model.Add(busy[d, p] == 0)
 
         # 2) يوم/أيام عطلة أسبوعية (قيد صلب - لا استثناء): إما أيام محددة
         #    بالاسم (واحد أو أكثر)، أو عدد أيام يختاره الحل تلقائياً. في كلتا
@@ -1803,7 +1822,14 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
                             [prev_b.Not(), cur_b, suf[p].Not()]).OnlyEnforceIf(g.Not())
                         gap_vars.append(g)
                     if gap_vars:
-                        model.Add(sum(gap_vars) <= max_gaps)
+                        # قيد ليّن: التجاوز (عدد النوافذ فوق الحد) يُعاقَب في
+                        # الهدف بدل أن يُفشل التوليد.
+                        excess_gap = model.NewIntVar(0, n, f"gapexcess_{teacher}_{d}")
+                        model.Add(excess_gap >= sum(gap_vars) - max_gaps)
+                        soft_violation_terms_emptyperiods.append(excess_gap)
+                        soft_violation_terms_by_teacher.setdefault(teacher, []).append(
+                            (excess_gap, "gap_windows"))
+                        gap_targets.setdefault(teacher, {})[d] = (gap_vars, max_gaps)
                 if mce_cfg["enabled"]:
                     window = max(0, int(mce_cfg["max"] or 0)) + 1
                     for a in range(1, n - window):
@@ -1876,10 +1902,10 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     # optimized first, with the plain total acting only as a tie-breaker
     # among schedules sharing the same worst case.
     if soft_violation_terms_emptyperiods:
-        max_possible_total = len(soft_violation_terms_emptyperiods) * EMPTY_PERIODS_WEIGHT
+        max_possible_total = len(soft_violation_terms_emptyperiods) * EMPTY_PERIODS_WEIGHT * periods_per_day
         max_violation_var = model.NewIntVar(0, max_possible_total, "max_teacher_violation")
         for teacher, tagged_terms in soft_violation_terms_by_teacher.items():
-            terms_upper_bound = len(tagged_terms) * EMPTY_PERIODS_WEIGHT
+            terms_upper_bound = len(tagged_terms) * EMPTY_PERIODS_WEIGHT * periods_per_day
             teacher_violation_load = model.NewIntVar(
                 0, terms_upper_bound, f"violation_load_{teacher}")
             model.Add(teacher_violation_load == sum(
@@ -1950,39 +1976,19 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
         entry["requested"] += requested
         entry["achieved"] += achieved
 
-    for teacher, info in empty_period_targets.items():
-        by_day = {}
-        for (d, p), var in info["vars"].items():
-            by_day.setdefault(d, []).append(p)
-        day_violations = {}
-        for d, ps in by_day.items():
-            violated = sum(1 for p in ps if solver.Value(info["vars"][d, p]))
-            if violated:
-                day_violations[d] = (violated, len(ps))
-        total_target = len(info["vars"])
-        total_violated = sum(1 for var in info["vars"].values() if solver.Value(var))
-        _add_fulfillment(teacher, requested=total_target, achieved=total_target - total_violated)
-        if day_violations:
-            # كل يوم قد يكون له عدده الخاص المطلوب (نمط "أيام محددة")، لذا
-            # يُبنى وصف الطلب لكل يوم على حدة بدل جملة واحدة موحّدة للجميع.
-            parts = []
-            for d in sorted(day_violations):
-                violated, target = day_violations[d]
-                left_empty = target - violated
-                cfg = info["day_config"][d]
-                req_parts = []
-                if cfg["start_enabled"]:
-                    unit = "حصة" if cfg["start_count"] == 1 else "حصص"
-                    req_parts.append(f"{cfg['start_count']} {unit} من البداية")
-                if cfg["end_enabled"]:
-                    unit = "حصة" if cfg["end_count"] == 1 else "حصص"
-                    req_parts.append(f"{cfg['end_count']} {unit} من النهاية")
-                req_desc = " و".join(req_parts) if req_parts else "الحصص المطلوبة"
-                parts.append(f"{days[d]} (المطلوب {req_desc} — تم تفريغ {left_empty} من {target})")
+    for teacher, per_day in gap_targets.items():
+        over = []
+        for d, (gvars, max_gaps) in sorted(per_day.items()):
+            actual = sum(1 for g in gvars if solver.Value(g))
+            if actual > max_gaps:
+                over.append((days[d], actual, max_gaps))
+        _add_fulfillment(teacher, requested=len(per_day), achieved=len(per_day) - len(over))
+        if over:
+            parts = [f"{name} ({a} نوافذ بدل {m})" if a > 2 else
+                     f"{name} ({a} نافذة بدل {m})" for name, a, m in over]
             _add_note(teacher, (
-                "ملاحظة: تعذّر تفريغ الحصص المطلوبة بالكامل «تفريغ حصص في بداية/نهاية "
-                "اليوم» في بعض الأيام لهذا الأستاذ، بسبب العدد الفعلي لحصصه الأسبوعية: "
-                + "، ".join(parts) + "."
+                "ملاحظة: تعذّر الالتزام بالحد الأقصى لعدد نوافذ الفراغ في اليوم لهذا "
+                "الأستاذ في بعض الأيام: " + "، ".join(parts) + "."
             ))
 
     # لا حاجة لأي تحقق أو ملاحظة بعد الحل بخصوص "يوم عطلة" بعد الآن - هو قيد
