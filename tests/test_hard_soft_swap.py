@@ -57,3 +57,13 @@ def test_gap_windows_is_soft_with_note_not_failure():
     loser_t = next(t for t in ("A", "B") if t in notes)
     assert "نوافذ الفراغ" in notes[loser_t][0]
     assert f[loser_t]["achieved"] < f[loser_t]["requested"]
+
+
+def test_capacity_counts_hard_empty_periods_with_random_day_off():
+    """يوم عطلة عشوائي + تفريغ أول حصة كل يوم: 4 أيام × 5 حصص = 20 فقط."""
+    d = _single(21, {"empty_periods": _ep(start=1),
+                     "day_off": {"enabled": True, "mode": "random", "days": [], "count": 1}}, ppd=6)
+    d["meta"]["days"] = ["أ", "ب", "ج", "د", "هـ"]
+    assert scheduler.teacher_capacity(d, "A") == 20
+    with pytest.raises(RuntimeError, match="21 حصة > 20"):
+        scheduler.solve_timetable(d, max_time_in_seconds=5, num_workers=1)

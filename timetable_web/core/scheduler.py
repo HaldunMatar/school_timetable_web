@@ -729,28 +729,21 @@ def teacher_capacity(data, teacher_name):
     more periods than are actually available to them) before the full
     CP-SAT model is built.
     """
-    total = total_slots(data)
     eff = effective_constraints(data, teacher_name)
     day_off = eff["day_off"]
-    days = data["meta"]["days"]
-    off_days = []
-    if day_off["enabled"] and day_off["mode"] == "specific":
-        off_days = [d for d in dict.fromkeys(day_off.get("days") or []) if d in days]
-    # "تفريغ حصص" صلب الآن: يخصم حصصه المستهدفة في الأيام غير المستثناة أصلاً
-    # بيوم عطلة محدد (بلا ازدواج). يُتجاهَل مع يوم عطلة عشوائي (أفضل حالة).
-    reserved = 0
     ep = eff["empty_periods"]
-    if ep["enabled"] and not (day_off["enabled"] and day_off["mode"] != "specific"):
-        reserved = sum(len(v) for d, v in empty_period_slots(data, ep).items()
-                       if days[d] not in off_days)
-    total -= reserved
+    days = data["meta"]["days"]
+    reserved = empty_period_slots(data, ep) if ep["enabled"] else {}
+    # الحصص المتاحة فعلاً لكل يوم بعد استبعاد حصص "تفريغ الحصص" الصلبة.
+    usable = [day_period_count(data, d) - len(reserved.get(i, ())) for i, d in enumerate(days)]
     if not day_off["enabled"]:
-        return total
+        return sum(usable)
     if day_off["mode"] == "specific":
-        return total - sum(day_period_count(data, d) for d in off_days)
+        off = {days.index(d) for d in dict.fromkeys(day_off.get("days") or []) if d in days}
+        return sum(u for i, u in enumerate(usable) if i not in off)
+    # عشوائي: أفضل حالة ممكنة = يختار الحل أقل الأيام سعةً متاحة عطلةً.
     n = max(1, min(int(day_off.get("count", 1) or 1), len(days)))
-    shortest_counts = sorted(day_period_count(data, d) for d in days)[:n]
-    return total - sum(shortest_counts)
+    return sum(usable) - sum(sorted(usable)[:n])
 
 
 def validate_teacher_constraints(data):
