@@ -19,7 +19,7 @@
   </div>
 
   {% if store.solve_message %}
-    <p class="muted" style="margin: 6px 0 0 0;">{{ store.solve_message }}</p>
+    <p class="muted" style="margin: 6px 0 0 0; white-space: pre-line;">{{ store.solve_message }}</p>
   {% endif %}
 
   {% if store.solve_status == "running" %}

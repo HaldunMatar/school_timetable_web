@@ -1306,7 +1306,7 @@ def requirements_from_slots(slots):
 
 
 def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
-                     warm_start=None):
+                     warm_start=None, _no_diagnose=False):
     """
     Solve the full weekly timetable.
 
@@ -1937,7 +1937,15 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
     status_name = solver.StatusName(status)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        raise RuntimeError(f"تعذّر إيجاد جدول صالح (الحالة: {status_name}).")
+        message = f"تعذّر إيجاد جدول صالح (الحالة: {status_name})."
+        if status == cp_model.INFEASIBLE and not _no_diagnose:
+            if progress:
+                progress("الجدول مستحيل - جاري تحديد القيود المتعارضة (قد يستغرق دقيقة أو دقيقتين)...")
+            try:
+                message += "\n" + diagnose_infeasibility(data, progress=progress)
+            except Exception:  # التشخيص مساعد فقط - لا يُخفي الخطأ الأصلي أبداً
+                pass
+        raise RuntimeError(message)
 
     section_sched = {sid: [None] * nslots for sid in section_ids}
     for i, r in enumerate(requirements):
@@ -1995,6 +2003,153 @@ def solve_timetable(data, max_time_in_seconds=300, num_workers=8, progress=None,
             for note in notes:
                 progress(f"{teacher}: {note}")
     return status_name, result, constraint_notes, constraint_fulfillment
+
+
+_HARD_TEACHER_KINDS = ("empty_periods", "day_off", "max_consecutive_empty", "start_from_beginning")
+
+
+def _solve_status(data, limit):
+    """"OK" | "INF" (مستحيل) | "UNK" (انتهت المهلة بلا جواب) - بلا تشخيص متداخل."""
+    try:
+        solve_timetable(data, max_time_in_seconds=limit, num_workers=8, _no_diagnose=True)
+        return "OK"
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "INFEASIBLE" in msg or "يستحيل" in msg:
+            return "INF"
+        return "UNK"
+
+
+def diagnose_infeasibility(data, budget=120, progress=None):
+    """
+    يشرح بالعربية سبب استحالة الجدول: الصفوف الزائدة الحصص، ثم الأساتذة (أو
+    المواد) الذين تتعارض قيودهم الصلبة مع بقية القيود، مع الحل المقترح.
+    الطريقة: تُسقَط قيود كل الأساتذة الصلبة ثم تُعاد أستاذاً أستاذاً؛ من يجعل
+    الجدول مستحيلاً عند إعادته = متعارض مع الباقين (النتيجة تقريبية: تعتمد
+    على ترتيب الإعادة، وكل محاولة بمهلة قصيرة).
+    """
+    import copy
+    import time
+    deadline = time.monotonic() + budget
+    lines = []
+    over = [f"{label} ({int(round(total))} حصة أسبوعياً > {needed} المتاحة)"
+            for _g, label, total, needed in incomplete_grades(data)
+            if round(total) > needed]
+    if over:
+        lines.append("• صفوف مجموع حصص موادها أكبر من حصص الأسبوع: " + "، ".join(over)
+                     + " - خفّض حصص بعض موادها.")
+
+    work = copy.deepcopy(data)
+    sc = work.setdefault("scheduling_constraints", {"defaults": {}, "per_teacher": {}})
+    sc.setdefault("per_teacher", {})
+    sc.setdefault("defaults", {})
+    active = {}  # أستاذ -> الأنواع الصلبة المفعَّلة فعلاً
+    for t in get_all_teacher_names(work):
+        eff = effective_constraints(work, t)
+        kinds = [k for k in _HARD_TEACHER_KINDS if eff[k]["enabled"]]
+        if kinds:
+            active[t] = kinds
+    originals = {t: copy.deepcopy(sc["per_teacher"].get(t)) for t in active}
+
+    def apply(teacher, kinds):
+        """يعطّل الأنواع المذكورة (تعطيل = تجاوز خاص بالأستاذ)."""
+        pt = sc["per_teacher"].setdefault(teacher, {})
+        for k in kinds:
+            pt[k] = dict(effective_constraints(work, teacher)[k], enabled=False)
+
+    def restore(teacher):
+        if originals[teacher] is None:
+            sc["per_teacher"].pop(teacher, None)
+        else:
+            sc["per_teacher"][teacher] = copy.deepcopy(originals[teacher])
+
+    def left():
+        return deadline - time.monotonic()
+
+    for t, kinds in active.items():
+        apply(t, kinds)
+    if _solve_status(work, 20) == "INF":
+        # حتى بدون قيود الأساتذة الصلبة: جرّب قيود المواد ثم البيانات نفسها.
+        saved = {}
+        for i, sub in enumerate(work["subjects"]):
+            c = sub.get("constraints") or {}
+            ks = [k for k in ("max_consecutive_per_day", "max_daily_per_section")
+                  if (c.get(k) or {}).get("enabled")]
+            if ks:
+                saved[i] = copy.deepcopy(c)
+                for k in ks:
+                    c[k] = dict(c[k], enabled=False)
+        bad_subjects = []
+        if saved and _solve_status(work, 20) != "INF":
+            for i in saved:
+                if left() <= 0:
+                    break
+                work["subjects"][i]["constraints"] = copy.deepcopy(saved[i])
+                if _solve_status(work, 8) == "INF":
+                    bad_subjects.append(work["subjects"][i]["name"])
+                    c = work["subjects"][i]["constraints"]
+                    for k in c:
+                        if isinstance(c[k], dict):
+                            c[k] = dict(c[k], enabled=False)
+        if bad_subjects:
+            lines.append("• قيود المواد التالية (الحد الأقصى اليومي/المتتالي) تتعارض مع بقية البيانات: "
+                         + "، ".join(bad_subjects) + " - خفّفها أو عطّلها.")
+        else:
+            lines.append("• التعارض في بيانات المنهج/الإسناد نفسها حتى بدون أي قيود جدولة: راجع "
+                         "إسناد الأساتذة اليدوي، وأن مجموع حصص الأستاذ لا يتجاوز خانات الأسبوع، "
+                         "والحصص الثابتة بلا أستاذ، ودمج الشعب.")
+        return "\n".join(lines)
+
+    culprits = []
+    for t in sorted(active, key=lambda n: -len(active[n])):
+        if left() <= 0:
+            lines.append("• (انتهى وقت التشخيص قبل فحص كل الأساتذة - النتيجة ناقصة.)")
+            break
+        restore(t)
+        if _solve_status(work, max(4, min(8, left()))) == "INF":
+            culprits.append(t)
+            apply(t, active[t])  # أبقِ قيوده معطّلة وتابع الفحص مع الباقين
+
+    load = {}
+    for r in requirements_from_slots(build_all_slots(work)):
+        load[r["teacher"]] = load.get(r["teacher"], 0) + r["periods"]
+    for t in culprits:
+        # أي قيد منها وحده هو المانع؟ (مع بقية الأساتذة المُعادين)
+        solo = []
+        for k in active[t]:
+            if left() <= 0:
+                break
+            restore(t)
+            apply(t, [x for x in active[t] if x != k])
+            if _solve_status(work, 6) == "INF":
+                solo.append(k)
+        apply(t, active[t])
+        eff = effective_constraints(data, t)
+        parts = [f"{CONSTRAINT_TITLES[k]} ({_describe_constraint_detail(k, eff[k])})"
+                 for k in active[t]]
+        cap = teacher_capacity(data, t)
+        line = f"• الأستاذ {t}: " + " + ".join(parts) + f" - حصصه {int(load.get(t, 0))} وسعته المتاحة {cap}."
+        if solo:
+            line += " (إبقاء هذا القيد وحده مع بقية القيود يكفي للاستحالة: " + "، ".join(CONSTRAINT_TITLES[k] for k in solo) + ")."
+        lines.append(line)
+    if culprits:
+        crowd = {}
+        for t in active:
+            g = effective_constraints(data, t)["day_off"]
+            if g["enabled"] and g["mode"] == "specific":
+                for d in dict.fromkeys(g.get("days") or []):
+                    crowd[d] = crowd.get(d, 0) + 1
+        busy_days = [f"{d} ({n} أساتذة)" for d, n in sorted(crowd.items(), key=lambda kv: -kv[1]) if n >= 3]
+        lines.append("• الأساتذة المذكورون هم من ظهر عندهم التعارض عند إعادة القيود تدريجياً، لكن السبب "
+                     "مشترك مع قيود أساتذة آخرين."
+                     + (" أيام العطلة المتكدسة: " + "، ".join(busy_days) + " - كلما تجمّعت عطل عدة أساتذة في "
+                        "يوم قلّ من يغطي حصص الشعب فيه." if busy_days else ""))
+        lines.append("الحل: عدّل واحداً على الأقل من قيود هؤلاء (أسهلها: تقليل أيام التفريغ/العطلة، أو "
+                     "إلغاء قيد واحد، أو تخفيف حصص الأستاذ) ثم أعد التوليد.")
+    elif not over:
+        lines.append("• لم أستطع تحديد أستاذ بعينه: التعارض موزَّع على عدة أساتذة معاً. عطّل "
+                     "قيد \"تفريغ الحصص\" أو \"يوم العطلة\" عن بعض الأساتذة ذوي الحصص الكثيرة وأعد المحاولة.")
+    return "\n".join(lines)
 
 
 def teacher_roster(data):
