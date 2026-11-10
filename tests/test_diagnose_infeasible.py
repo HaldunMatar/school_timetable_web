@@ -68,3 +68,19 @@ def test_no_recursion_and_plain_message_when_no_constraints_are_to_blame():
     data["subjects"][0]["manual_assignments"] = []
     m = _msg(_inst([_subj("م1", 4, "A")], {}, ppd=3, teachers=("A",)))
     assert "INFEASIBLE" in m or "يستحيل" in m
+
+
+@pytest.mark.slow
+def test_lists_tight_teachers_and_crowded_days_by_name():
+    # A: 4 حصص وسعته 5 (80%) مع عطلة يوم2 وmax_consecutive_empty=0 (يوم1 كله
+    # مشغول = 5 حصص) فيستحيل؛ وB وC وD عطلتهم نفس اليوم - يوم2 متكدس.
+    off = {"enabled": True, "mode": "specific", "days": ["يوم2"], "count": 1}
+    subs = [_subj("م1", 4, "A"), _subj("م2", 1, "B"), _subj("م3", 1, "C"), _subj("م4", 1, "D")]
+    pt = {t: {"day_off": dict(off)} for t in ("B", "C", "D")}
+    pt["A"] = {"max_consecutive_empty": {"enabled": True, "max": 0}, "day_off": dict(off)}
+    d = _inst(subs, pt, ppd=5, teachers=("A", "B", "C", "D"), days=("يوم1", "يوم2"))
+    m = _msg(d)
+    assert "الأساتذة الأكثر ضغطاً" in m and "A" in m
+    assert "أيام العطلة المتكدسة" in m and "يوم2 (4 أساتذة)" in m
+    for t in ("B", "C", "D"):
+        assert t in m

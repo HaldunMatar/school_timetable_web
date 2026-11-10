@@ -2020,7 +2020,7 @@ def _solve_status(data, limit):
         return "UNK"
 
 
-def diagnose_infeasibility(data, budget=120, progress=None):
+def diagnose_infeasibility(data, budget=180, progress=None):
     """
     يشرح بالعربية سبب استحالة الجدول: الصفوف الزائدة الحصص، ثم الأساتذة (أو
     المواد) الذين تتعارض قيودهم الصلبة مع بقية القيود، مع الحل المقترح.
@@ -2132,21 +2132,43 @@ def diagnose_infeasibility(data, budget=120, progress=None):
         if solo:
             line += " (إبقاء هذا القيد وحده مع بقية القيود يكفي للاستحالة: " + "، ".join(CONSTRAINT_TITLES[k] for k in solo) + ")."
         lines.append(line)
-    if culprits:
+    if active:
+        # (1) الأساتذة الأكثر ضغطاً: حصصهم تقارب سعتهم المتاحة بعد قيودهم الصلبة،
+        # فلا هامش للمحرك عندهم - هؤلاء هم عادةً أصل الاستحالة.
+        tight = []
+        for t in get_all_teacher_names(data):
+            cap = teacher_capacity(data, t)
+            ld = int(load.get(t, 0))
+            if ld and cap and ld / cap >= 0.75:
+                tight.append((ld / cap, t, ld, cap))
+        tight.sort(reverse=True)
+        if tight:
+            lines.append("• الأساتذة الأكثر ضغطاً (حصصهم شبه مساوية لسعتهم المتاحة، فلا هامش لديهم):")
+            for _r, t, ld, cap in tight[:15]:
+                eff = effective_constraints(data, t)
+                cons = [CONSTRAINT_TITLES[k] + " (" + _describe_constraint_detail(k, eff[k]) + ")"
+                        for k in _HARD_TEACHER_KINDS if eff[k]["enabled"]]
+                lines.append(f"   - {t}: {ld} حصة من {cap} متاحة ({round(100 * ld / cap)}%)"
+                             + (" - " + " + ".join(cons) if cons else ""))
+        # (2) أيام العطلة المتكدسة بالأسماء.
         crowd = {}
-        for t in active:
+        for t in get_all_teacher_names(data):
             g = effective_constraints(data, t)["day_off"]
             if g["enabled"] and g["mode"] == "specific":
                 for d in dict.fromkeys(g.get("days") or []):
-                    crowd[d] = crowd.get(d, 0) + 1
-        busy_days = [f"{d} ({n} أساتذة)" for d, n in sorted(crowd.items(), key=lambda kv: -kv[1]) if n >= 3]
-        lines.append("• الأساتذة المذكورون هم من ظهر عندهم التعارض عند إعادة القيود تدريجياً، لكن السبب "
-                     "مشترك مع قيود أساتذة آخرين."
-                     + (" أيام العطلة المتكدسة: " + "، ".join(busy_days) + " - كلما تجمّعت عطل عدة أساتذة في "
-                        "يوم قلّ من يغطي حصص الشعب فيه." if busy_days else ""))
+                    crowd.setdefault(d, []).append(t)
+        busy_days = [(d, names) for d, names in sorted(crowd.items(), key=lambda kv: -len(kv[1]))
+                     if len(names) >= 3]
+        if busy_days:
+            lines.append("• أيام العطلة المتكدسة (كلما تجمّعت عطل عدة أساتذة في يوم قلّ من يغطي حصص الشعب فيه):")
+            for d, names in busy_days:
+                lines.append(f"   - {d} ({len(names)} أساتذة): " + "، ".join(names))
+        if culprits:
+            lines.append("• الأساتذة المذكورون أولاً هم من ظهر عندهم التعارض عند إعادة القيود تدريجياً؛ "
+                         "السبب مشترك مع قيود الأساتذة الأكثر ضغطاً والأيام المتكدسة أعلاه.")
         lines.append("الحل: عدّل واحداً على الأقل من قيود هؤلاء (أسهلها: تقليل أيام التفريغ/العطلة، أو "
                      "إلغاء قيد واحد، أو تخفيف حصص الأستاذ) ثم أعد التوليد.")
-    elif not over:
+    elif not over and not any(l.startswith("• الأساتذة الأكثر") or l.startswith("• أيام العطلة") for l in lines):
         lines.append("• لم أستطع تحديد أستاذ بعينه: التعارض موزَّع على عدة أساتذة معاً. عطّل "
                      "قيد \"تفريغ الحصص\" أو \"يوم العطلة\" عن بعض الأساتذة ذوي الحصص الكثيرة وأعد المحاولة.")
     return "\n".join(lines)
